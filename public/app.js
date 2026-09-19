@@ -1198,7 +1198,7 @@ function renderMaterialList() {
   if (!state.materials.length) {
     const empty = document.createElement("p");
     empty.className = "empty-library";
-    empty.textContent = "导入第一段真实会议，材料会保存在这里。";
+    empty.textContent = "从一段你好奇的英文开始，材料会保存在这里。";
     elements.materialList.append(empty);
     return;
   }

@@ -131,6 +131,7 @@ textarea:focus-visible,
 }
 
 .brand-mark {
+  flex: none;
   display: grid;
   place-items: center;
   width: 38px;
@@ -141,6 +142,7 @@ textarea:focus-visible,
   font-weight: 700;
 }
 
+.brand-copy { min-width: 0; }
 .brand-button strong { display: block; font-size: 15px; letter-spacing: 0.02em; }
 .brand-button small { display: block; color: var(--muted); font-size: 10px; margin-top: 1px; letter-spacing: 0.04em; }
 
@@ -328,7 +330,8 @@ textarea:focus-visible,
 
 .home-intro { align-self: center; }
 .eyebrow { margin: 0 0 28px; color: var(--accent-deep); font-size: 11px; font-weight: 700; letter-spacing: 0.16em; }
-.home-intro h1 { margin: 0; font-size: clamp(44px, 5vw, 72px); line-height: 1.08; letter-spacing: -0.045em; font-weight: 640; }
+.home-tagline { max-width: 42ch; font-size: 13px; line-height: 1.6; letter-spacing: 0.015em; }
+.home-intro h1 { margin: 0; font-size: clamp(40px, 3.6vw, 52px); line-height: 1.08; letter-spacing: -0.045em; font-weight: 640; }
 .home-copy { max-width: 34rem; margin: 30px 0 0; color: var(--muted); font-size: 16px; line-height: 1.8; }
 
 .import-workbench {
