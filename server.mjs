@@ -512,7 +512,7 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(PORT, HOST, async () => {
-  console.log(`原声精听已启动：http://${HOST}:${PORT}`);
+  console.log(`CurioListen · 原声精听已启动：http://${HOST}:${PORT}`);
   console.log(`本地数据目录：${DATA_ROOT}`);
   try {
     const recovery = await recoverInterruptedJobs((materialId, aiSettings) => (

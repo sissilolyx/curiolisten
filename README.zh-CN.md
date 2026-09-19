@@ -1,12 +1,16 @@
-# 原声精听 · Meeting Listening Lab
+# CurioListen · 原声精听
 
 [English](README.md) · **简体中文**
 
-**把想看的 YouTube、想听的播客，变成 AI 英语精听练习。**
+**把你好奇的，变成你的英语练习。**
 
-同一句话重听了几遍，还是没听清？导入视频、播客或自己的录音，先听原声、试着听写，再核对文本，让 AI 解释卡住你的词句。值得记住的表达可以连同原句和原声一起留到复习里。
+Turn what you’re curious about into English listening practice.
 
-[在 Mac 上开始](#最简单把-github-链接交给-codex-或-cursor) · [查看界面](#产品一览) · [常见问题](#使用前你可能想问) · [反馈问题](https://github.com/sissilolyx/meeting-listening-lab/issues)
+想追的访谈、最近着迷的话题、想听懂的播客——学习材料，由你的好奇心决定。**CurioListen 把你选择的英文内容，变成有 AI 帮助的精听练习。**
+
+导入 YouTube 视频、播客或自己的录音，先听原声、试着听写，再核对文本，让 AI 解释卡住你的词句。值得记住的表达，连同原句和原声一起留到复习里，慢慢积累成属于你的学习材料库。
+
+[在 Mac 上开始](#最简单把-github-链接交给-codex-或-cursor) · [查看界面](#产品一览) · [常见问题](#使用前你可能想问) · [反馈问题](https://github.com/sissilolyx/curiolisten/issues)
 
 面向中文使用者的英语学习工具。macOS 本地运行，当前界面与 AI 讲解以中文为主。
 
@@ -29,9 +33,9 @@
 
 ## 最简单：把 GitHub 链接交给 Codex 或 Cursor
 
-仓库已经公开。把 [meeting-listening-lab 仓库链接](https://github.com/sissilolyx/meeting-listening-lab) 发给运行在**你自己 Mac 上**、能够使用本地终端和浏览器的 Codex 或 Cursor。可以只说：
+仓库已经公开。把 [CurioListen 仓库链接](https://github.com/sissilolyx/curiolisten) 发给运行在**你自己 Mac 上**、能够使用本地终端和浏览器的 Codex 或 Cursor。可以只说：
 
-> 请在我的 Mac 上安装或更新这个项目并打开网站：https://github.com/sissilolyx/meeting-listening-lab 。先完整阅读 README.zh-CN.md 的“给安装代理的执行契约”。复用已有安装目录和本机数据；先运行 `./setup.command` 检测环境。你是 Codex 就只准备 Codex，你是 Cursor 就只准备 Cursor。若当前服务的官方 CLI 或项目必需依赖缺失，我授权你按 README 列出的官方方式执行安装；需要系统审批时直接向我发起审批，不要只把命令交给我。账号登录时请启动官方浏览器登录流程，等我完成账号选择、SSO/MFA 或授权后主动重新检测。读取我账号当前可用的模型后在这个对话里让我选，或者打开网页让我选。不要删除、清理或上传 `.data/`、`.models/`，不要索取或读取 Token，也不要替我运行会消耗额度的连接测试。
+> 请在我的 Mac 上安装或更新这个项目并打开网站：https://github.com/sissilolyx/curiolisten 。先完整阅读 README.zh-CN.md 的“给安装代理的执行契约”。复用已有安装目录和本机数据；先运行 `./setup.command` 检测环境。你是 Codex 就只准备 Codex，你是 Cursor 就只准备 Cursor。若当前服务的官方 CLI 或项目必需依赖缺失，我授权你按 README 列出的官方方式执行安装；需要系统审批时直接向我发起审批，不要只把命令交给我。账号登录时请启动官方浏览器登录流程，等我完成账号选择、SSO/MFA 或授权后主动重新检测。读取我账号当前可用的模型后在这个对话里让我选，或者打开网页让我选。不要删除、清理或上传 `.data/`、`.models/`，不要索取或读取 Token，也不要替我运行会消耗额度的连接测试。
 
 代理完成后会打开同一个本地网站。不是两套应用，也不需要“从 Codex 打开一个版本、从 Cursor 打开另一个版本”：Codex/Cursor 只是这个网站所调用的 AI 讲解服务。
 
@@ -46,7 +50,7 @@
 
 如果你是接手上述链接的 Codex 或 Cursor，请严格遵守：
 
-1. **先找旧安装，再决定是否 clone。** 查找 remote 指向本仓库的现有目录；找到后必须在原目录更新，不要另建一份 clone，否则新目录会显示空材料库。已有 `update.command` 时直接运行 `./update.command`。很老的版本没有这个文件时，先只获取远端并从远端版本取出安全更新器，再让它检查和更新当前目录：
+1. **先找旧安装，再决定是否 clone。** 查找 remote 指向 `sissilolyx/curiolisten` 或旧名称 `sissilolyx/meeting-listening-lab` 的现有目录；找到后必须在原目录更新，不要另建一份 clone，否则新目录会显示空材料库。已有 `update.command` 时直接运行 `./update.command`。很老的版本没有这个文件时，先只获取远端并从远端版本取出安全更新器，再让它检查和更新当前目录：
 
    ```bash
    git fetch --prune
@@ -77,7 +81,7 @@
 
 - **精听主流程已可用。** 原声播放、分段听写、逐句核对与讲解、表达学习和 AI 问问等核心训练流程已经可用，仍会继续优化细节与稳定性。
 - **复习模式：仍在持续打磨。** 当前可以体验，但交互和复习策略还不是最终版本；打磨完成后会随后续版本更新。
-- **欢迎反馈。** 如果你遇到问题，或对训练流程、复习方式有任何建议，欢迎提交 [GitHub Issue](https://github.com/sissilolyx/meeting-listening-lab/issues)。
+- **欢迎反馈。** 如果你遇到问题，或对训练流程、复习方式有任何建议，欢迎提交 [GitHub Issue](https://github.com/sissilolyx/curiolisten/issues)。
 
 ## 产品一览
 
@@ -124,8 +128,8 @@
 1. 从公开 GitHub 仓库克隆代码：
 
    ```bash
-   git clone https://github.com/sissilolyx/meeting-listening-lab.git
-   cd meeting-listening-lab
+   git clone https://github.com/sissilolyx/curiolisten.git
+   cd curiolisten
    ```
 
 2. 双击 `setup.command`，或在终端运行：
@@ -330,6 +334,8 @@ brew install yt-dlp
 
 ## 更新代码而不丢学习数据
 
+**原来已经在用 Meeting Listening Lab？** 这就是同一个项目，现在更名为 CurioListen。保留原来的安装目录，不需要改文件夹名或重新 clone；材料、进度和浏览器学习偏好继续沿用。旧 GitHub 链接会跳转到新仓库。
+
 更新必须在原来的项目目录中进行。`.data/` 和 `.models/` 已被 Git 忽略，其中的材料、逐字稿、学习进度、问问、复习、AI provider/model 设置和 Whisper 模型都会继续使用。
 
 推荐双击 `update.command`，或在原项目目录运行：
@@ -351,7 +357,7 @@ brew install yt-dlp
 2. 在 Finder 中复制一份 `.data/` 到项目目录之外，或在项目目录运行下面的时间戳备份命令：
 
    ```bash
-   backup_dir="../meeting-listening-lab-data-backup-$(date +%Y%m%d-%H%M%S)"
+   backup_dir="../curiolisten-data-backup-$(date +%Y%m%d-%H%M%S)"
    cp -R .data "$backup_dir"
    ```
 
@@ -460,7 +466,7 @@ PORT=4174 npm start
 
 - 删除单份材料：在左侧材料库使用“删除”，材料会先进入本机垃圾桶，可在 30 天内恢复。
 - 停止工具：关闭启动终端，或按 `Control-C`。本项目不会安装常驻云服务。
-- 卸载但保留数据：先把 `.data/` 复制到项目目录之外，再把 `meeting-listening-lab` 文件夹移到 macOS 废纸篓。
+- 卸载但保留数据：先把 `.data/` 复制到项目目录之外，再把实际安装文件夹（新安装通常为 `curiolisten`，旧安装可能为 `meeting-listening-lab`）移到 macOS 废纸篓。
 - 永久删除全部本地材料：停止服务后，在 Finder 中显示隐藏文件并删除项目内的 `.data/`；模型位于 `.models/`，可以单独删除。
 
 卸载项目不会自动卸载 Node.js、FFmpeg、whisper.cpp、Codex CLI、Cursor Agent CLI 或 Lark CLI，因为其他本地工具也可能在使用它们。

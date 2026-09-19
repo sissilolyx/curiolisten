@@ -4,7 +4,7 @@ set -uo pipefail
 cd "$(dirname "$0")"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "英语精听训练目前仅支持 macOS。"
+  echo "CurioListen 原声精听目前仅支持 macOS。"
   exit 1
 fi
 
@@ -20,7 +20,7 @@ for resources in \
 done
 
 echo
-echo "英语精听训练 · macOS 本地版设置"
+echo "CurioListen 原声精听 · macOS 本地版设置"
 echo "================================"
 echo "此脚本只检查和给出命令，不会自动安装软件、登录账号或上传材料。"
 echo

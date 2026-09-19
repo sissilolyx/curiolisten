@@ -1,8 +1,12 @@
-# Meeting Listening Lab · 原声精听
+# CurioListen · 原声精听
 
 register: product
 
 ## Product purpose
+
+**Turn what you’re curious about into English listening practice.**
+
+把你好奇的，变成你的英语练习。
 
 Turn YouTube videos, podcast episodes, and real English recordings into AI-assisted intensive listening practice without replacing the original voices. The current release is a source-available, noncommercial, locally self-hosted macOS build for one learner per installation.
 

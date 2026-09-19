@@ -1,12 +1,14 @@
-# Meeting Listening Lab
+# CurioListen
 
-**Turn YouTube videos and podcasts into AI-guided English listening practice.**
+**Turn what you’re curious about into English listening practice.**
 
 **English** · [简体中文](README.zh-CN.md)
 
-Replayed a sentence several times and still missed it? Import a video, podcast, or recording. Listen before reading, type what you hear, then use AI to understand the words and expressions you missed. Save useful expressions and revisit them with the original audio.
+An interview you can’t stop watching. A podcast about your latest obsession. A talk you want to understand without subtitles. **CurioListen turns the English content you choose into AI-assisted listening practice.**
 
-[Get started on your Mac](#get-started-on-your-mac) · [See it in action](#see-it-in-action) · [How it works](#how-it-works) · [FAQ](#common-questions) · [Report an issue](https://github.com/sissilolyx/meeting-listening-lab/issues)
+Bring a YouTube video, podcast episode, or recording. Listen before reading, try dictation, and let AI explain the parts you missed. Build your own collection of useful expressions, with the original sentences and audio ready to revisit.
+
+[Get started on your Mac](#get-started-on-your-mac) · [See it in action](#see-it-in-action) · [How it works](#how-it-works) · [FAQ](#common-questions) · [Report an issue](https://github.com/sissilolyx/curiolisten/issues)
 
 Built for **Chinese-speaking English learners**. The app's interface and AI explanations are currently in Chinese. Runs locally on **macOS**.
 
@@ -57,7 +59,7 @@ Local Whisper handles transcription. You can correct recognition errors and keep
 
 If you already use Codex or Cursor on your Mac, paste this request into an assistant that can use your local terminal and browser:
 
-> Install or update https://github.com/sissilolyx/meeting-listening-lab on my Mac and open the app. Read the installation-agent contract in README.md first. Reuse any existing installation and preserve its data. Run ./setup.command to check dependencies. Use only your corresponding AI provider and install missing required tools from official sources with any necessary system approval. Start the official browser login if needed and recheck after I finish. Let me choose from my account's available models. Do not read, delete, clean, modify, or upload .data/ or .models/. Never request or read tokens, and do not run quota-consuming AI connection tests.
+> Install or update https://github.com/sissilolyx/curiolisten on my Mac and open the app. Read the installation-agent contract in README.md first. Reuse any existing installation and preserve its data. Run ./setup.command to check dependencies. Use only your corresponding AI provider and install missing required tools from official sources with any necessary system approval. Start the official browser login if needed and recheck after I finish. Let me choose from my account's available models. Do not read, delete, clean, modify, or upload .data/ or .models/. Never request or read tokens, and do not run quota-consuming AI connection tests.
 
 Setup includes system dependencies and a roughly **466 MB Whisper model** download. The assistant must operate on your own Mac; a cloud coding session cannot open your local materials.
 
@@ -67,8 +69,8 @@ With Git and Homebrew available on your Mac:
 
 ```bash
 brew install node@22 ffmpeg whisper-cpp yt-dlp
-git clone https://github.com/sissilolyx/meeting-listening-lab.git
-cd meeting-listening-lab
+git clone https://github.com/sissilolyx/curiolisten.git
+cd curiolisten
 ./setup.command
 npm run setup:model
 ./start.command
@@ -93,7 +95,7 @@ YouTube supports individual public videos and Shorts. Apple Podcasts needs an **
 
 ### Installation-agent contract
 
-1. **Find an existing installation first.** Match this repository's Git remote and reuse that directory. Run `./update.command` for updates; clone only when no installation exists. For older installations without the updater, follow the compatibility procedure in the [Chinese contract](README.zh-CN.md#给安装代理的执行契约).
+1. **Find an existing installation first.** Recognize both `sissilolyx/curiolisten` and the former `sissilolyx/meeting-listening-lab` Git remote, and reuse that directory. Run `./update.command` for updates; clone only when no installation exists. For older installations without the updater, follow the compatibility procedure in the [Chinese contract](README.zh-CN.md#给安装代理的执行契约).
 2. **Never clean and reinstall.** Do not use destructive Git resets or clean commands, delete the installation, automatically stash changes, or replace it with a new clone. If public code has local modifications, stop and ask the user how to handle them.
 3. **Keep private data untouched.** Do not read, edit, delete, copy, or upload `.data/` or `.models/` during installation or updates. These contain learning materials, transcripts, progress, review, questions, preferences, AI settings, and the Whisper model. Only the explicitly requested model setup may download its model into `.models/`.
 4. **Check first, then complete authorized installation.** Run `./setup.command`. Reuse installed tools. Explain the official source, command, download size, and system changes for missing dependencies, obtain required system approvals, install, refresh PATH, and recheck. A Codex agent prepares Codex only; a Cursor agent prepares Cursor only. Do not silently install both providers.
@@ -128,7 +130,9 @@ Transcription and AI explanations can be wrong. You can edit the transcript and 
 
 ## Updates and project status
 
-The core listening workflow is usable. Review interactions and stability are still being refined. Feedback is welcome in [GitHub Issues](https://github.com/sissilolyx/meeting-listening-lab/issues); use fictional examples and remove personal content from screenshots and logs.
+The core listening workflow is usable. Review interactions and stability are still being refined. Feedback is welcome in [GitHub Issues](https://github.com/sissilolyx/curiolisten/issues); use fictional examples and remove personal content from screenshots and logs.
+
+**Already using Meeting Listening Lab?** This is the same project, now called CurioListen. Keep your existing installation folder; there is no need to rename it or clone again. Your materials, progress, and browser preferences continue to use the same local storage. The old GitHub URL redirects here.
 
 Update from your **existing installation directory**:
 

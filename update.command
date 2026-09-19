@@ -10,7 +10,7 @@ for candidate in "$HOME"/.nvm/versions/node/*/bin; do
 done
 
 echo
-echo "原声精听 · 安全更新"
+echo "CurioListen · 原声精听 · 安全更新"
 echo "==================="
 echo "只更新公开代码；不会 reset、clean、stash、删除或重新克隆。"
 echo

@@ -1,4 +1,4 @@
-# English documentation
+# CurioListen · English documentation
 
 The English guide is now the repository homepage: **[Read the English README](README.md)**.
 

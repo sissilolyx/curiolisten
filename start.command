@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "英语精听训练目前仅支持 macOS。"
+  echo "CurioListen 原声精听目前仅支持 macOS。"
   exit 1
 fi
 
@@ -61,7 +61,7 @@ url="http://$HOST:$PORT"
 if [[ "$PORT" != "$requested_port" ]]; then
   echo "端口 $requested_port 已被占用，已改用 ${PORT}。"
 fi
-echo "正在启动英语精听训练：$url"
+echo "正在启动CurioListen 原声精听：$url"
 
 # 等服务真正可访问后再打开浏览器，避免启动较慢时出现连接被拒绝。
 # LISTENING_NO_OPEN 仅供自动检查使用；正常双击不需要设置。
