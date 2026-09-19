@@ -1,3 +1,25 @@
+// Keep the full sentence as context, while respecting the question API's
+// 300-character selection limit and preserving an exact original-text anchor.
+export function createSentenceAskContext(sentence) {
+  const text = String(sentence?.text || "");
+  const start = text.search(/\S/u);
+  if (!sentence?.id || start < 0) return null;
+  const end = Math.min(start + 300, text.trimEnd().length);
+  const sourceText = text.slice(start, end);
+  return {
+    sentenceId: sentence.id,
+    sourceText,
+    question: "这句话在这里是什么意思？请解释值得掌握的表达和口语用法。",
+    anchorSurface: "original",
+    anchorSurfaceText: text.slice(0, 20000),
+    anchorStart: start,
+    anchorEnd: end,
+    anchorExact: sourceText,
+    prefix: text.slice(Math.max(0, start - 64), start),
+    suffix: text.slice(end, end + 64),
+  };
+}
+
 export function classifyAskAnchor(rect, viewportHeight, padding = 12) {
   if (!rect) return "missing";
   if (rect.bottom < padding) return "above";

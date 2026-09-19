@@ -1,4 +1,10 @@
 import { clipboardContainsFiles, extractPastedMediaFile, normalizePastedMediaFile } from "./file-import-utils.js";
+import { normalizeYouTubeUrl } from "./youtube-url-utils.js";
+import { normalizeApplePodcastsUrl } from "./apple-podcasts-url-utils.js";
+import { ImportTracker, isImportActive } from "./import-tracker.js";
+import { createExplanationReview, explanationReviewText, findExplanationReview, isExplanationReview } from "./explanation-review-utils.js";
+import { extractCorrectionHints } from "./transcript-correction-utils.js";
+import { startStudyTime } from "./study-time.js";
 import {
   AI_PROVIDER_IDS,
   aiProviderLabel,
@@ -10,6 +16,7 @@ import {
 } from "./ai-settings-utils.js";
 import {
   countAskThreadCards,
+  createSentenceAskContext,
   isAskRequestTokenCurrent,
   mergeAskThreadCards,
 } from "./ask-thread-utils.js";
@@ -40,11 +47,14 @@ import {
 } from "./study-mode-utils.js";
 
 const DEFAULT_PANE_RATIO = 0.44;
+const IMPORT_KINDS = ["youtube", "podcast", "lark", "file"];
 const DEFAULT_STUDY_MODE = "paragraphs";
 const PANE_RATIO_STORAGE_KEY = "meeting-listening-pane-ratio";
 const STUDY_POSITION_STORAGE_PREFIX = "meeting-listening-position";
 const LIBRARY_PREFERENCES_STORAGE_KEY = "meeting-listening-library-preferences";
 const LIBRARY_RAIL_COLLAPSED_STORAGE_KEY = "meeting-listening-library-rail-collapsed";
+const DICTATION_COLLAPSED_STORAGE_KEY = "meeting-listening-dictation-collapsed";
+const AUTO_REVEAL_STORAGE_KEY = "meeting-listening-auto-reveal";
 const MEDIA_VIEW_STORAGE_PREFIX = "meeting-listening-media-view";
 const MEDIA_VIEW_VISUAL = "visual";
 const MEDIA_VIEW_LISTEN = "listen";
@@ -74,6 +84,7 @@ const state = {
   trashLoading: false,
   restoringTrashIds: new Set(),
   trashDialogOpener: null,
+  correctionMemoryOpener: null,
   material: null,
   mode: DEFAULT_STUDY_MODE,
   reviewOnly: false,
@@ -98,9 +109,11 @@ const state = {
   media: null,
   mediaViewMode: MEDIA_VIEW_VISUAL,
   sentencePlayback: null,
-  activeJobId: null,
-  activeJobMaterialId: null,
-  pollTimer: null,
+  importBusy: false,
+  importTracker: new ImportTracker(globalThis.sessionStorage),
+  importPollTimer: null,
+  importPolling: false,
+  importRefreshPending: false,
   analysisPollTimer: null,
   saveTimer: null,
   playRequestId: 0,
@@ -133,6 +146,8 @@ const state = {
   selectionContext: null,
   libraryPreferences: loadLibraryPreferences(),
   libraryRailCollapsed: loadLibraryRailCollapsed(),
+  dictationCollapsed: loadDictationCollapsed(),
+  autoReveal: loadAutoReveal(),
   draggedMaterialId: null,
   pendingDeleteMaterialId: null,
   deleteDialogOpener: null,
@@ -140,11 +155,19 @@ const state = {
 };
 
 const elements = Object.fromEntries([...document.querySelectorAll("[id]")].map((element) => [element.id, element]));
+const studyTime = startStudyTime({
+  elements,
+  getMode: () => inReviewMode() ? "review" : "intensive",
+  getMedia: () => state.media,
+  isSpeaking: () => Boolean(state.pronunciationUtterance && window.speechSynthesis?.speaking && !window.speechSynthesis.paused),
+});
 
 boot();
 
 async function boot() {
   applyLibraryRailState();
+  applyDictationVisibility();
+  applyAutoRevealPreference();
   bindEvents();
   await Promise.all([
     loadSystemStatus(),
@@ -165,8 +188,34 @@ function bindEvents() {
   elements.libraryRailToggle.addEventListener("click", toggleLibraryRail);
   elements.newImportButton.addEventListener("click", showHome);
   elements.backButton.addEventListener("click", showHome);
-  elements.larkTab.addEventListener("click", () => switchImportTab("lark"));
-  elements.fileTab.addEventListener("click", () => switchImportTab("file"));
+  elements.materialSourceButton.addEventListener("click", openMaterialSource);
+  elements.closeMaterialSourceButton.addEventListener("click", closeMaterialSource);
+  elements.materialSourceDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeMaterialSource();
+  });
+  for (const [index, kind] of IMPORT_KINDS.entries()) {
+    elements[`${kind}Tab`].addEventListener("click", () => switchImportTab(kind));
+    elements[`${kind}Tab`].addEventListener("keydown", (event) => {
+      const count = IMPORT_KINDS.length;
+      const next = event.key === "ArrowRight" ? (index + 1) % count
+        : event.key === "ArrowLeft" ? (index + count - 1) % count
+          : event.key === "Home" ? 0 : event.key === "End" ? count - 1 : -1;
+      if (next < 0) return;
+      event.preventDefault();
+      const target = IMPORT_KINDS[next];
+      switchImportTab(target, { focusPanel: false });
+      elements[`${target}Tab`].focus();
+    });
+  }
+  elements.importYouTubeButton.addEventListener("click", importYouTube);
+  elements.youtubeUrl.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); importYouTube(); }
+  });
+  elements.importPodcastButton.addEventListener("click", importPodcast);
+  elements.podcastUrl.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); importPodcast(); }
+  });
   elements.importLarkButton.addEventListener("click", importLark);
   elements.larkUrl.addEventListener("keydown", (event) => {
     if (event.key === "Enter") importLark();
@@ -268,12 +317,41 @@ function bindEvents() {
     closeDeleteMaterialDialog();
   });
   elements.trashButton.addEventListener("click", openTrashDialog);
+  elements.correctionMemoryButton.addEventListener("click", openCorrectionMemory);
+  elements.closeCorrectionMemoryButton.addEventListener("click", closeCorrectionMemory);
+  elements.correctionMemoryDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeCorrectionMemory();
+  });
   elements.closeTrashButton.addEventListener("click", () => closeTrashDialog());
   elements.trashDialog.addEventListener("cancel", (event) => {
     event.preventDefault();
     closeTrashDialog();
   });
   elements.dictationInput.addEventListener("input", scheduleDictationSave);
+  elements.autoRevealInput.addEventListener("change", () => {
+    state.autoReveal = elements.autoRevealInput.checked;
+    try { localStorage.setItem(AUTO_REVEAL_STORAGE_KEY, String(state.autoReveal)); } catch {}
+    applyAutoRevealPreference();
+  });
+  elements.dictationToggleButton.addEventListener("click", () => {
+    state.dictationCollapsed = !state.dictationCollapsed;
+    try {
+      localStorage.setItem(DICTATION_COLLAPSED_STORAGE_KEY, String(state.dictationCollapsed));
+    } catch {
+      // Keep the preference for this session even when persistent storage is unavailable.
+    }
+    applyDictationVisibility();
+  });
+  window.addEventListener("storage", (event) => {
+    if (event.key === AUTO_REVEAL_STORAGE_KEY || event.key === null) {
+      state.autoReveal = loadAutoReveal();
+      applyAutoRevealPreference();
+    }
+    if (event.key !== DICTATION_COLLAPSED_STORAGE_KEY && event.key !== null) return;
+    state.dictationCollapsed = loadDictationCollapsed();
+    applyDictationVisibility();
+  });
   elements.paneResizer.addEventListener("pointerdown", startPaneResize);
   elements.paneResizer.addEventListener("pointermove", continuePaneResize);
   elements.paneResizer.addEventListener("pointerup", finishPaneResize);
@@ -293,6 +371,12 @@ async function loadSystemStatus() {
   try {
     state.status = await api("/api/status");
     const tools = state.status.tools;
+    elements.youtubeDependencyNote.classList.toggle("is-hidden", tools.youtube !== false);
+    elements.youtubeDependencyNote.textContent = tools.youtube === false
+      ? "YouTube 导入组件尚未准备好，请让安装代理完成配置。飞书和本地文件仍可使用。" : "";
+    elements.podcastDependencyNote.classList.toggle("is-hidden", tools.applePodcasts !== false);
+    elements.podcastDependencyNote.textContent = tools.applePodcasts === false
+      ? "播客导入组件尚未准备好，请让安装代理完成配置。飞书和本地文件仍可使用。" : "";
     const missing = [];
     if (!tools.ffmpeg || !tools.ffprobe) missing.push("FFmpeg");
     if (!tools.whisper) missing.push("Whisper CLI");
@@ -620,12 +704,15 @@ function renderAiModelOptions() {
     : "模型列表来自所选账户的本机 CLI，会随账号和版本动态更新。";
 }
 
-async function loadMaterials() {
-  const payload = await api("/api/materials");
+async function loadMaterials(options = {}) {
+  const payload = await api("/api/materials", options);
   state.materials = payload.materials;
   normalizeStoredReviewScope();
   renderGlobalStudyControls();
   renderMaterialList();
+  state.importTracker.syncMaterials(state.materials);
+  renderImportJobs();
+  scheduleImportPoll();
 }
 
 function inReviewMode() {
@@ -661,6 +748,7 @@ function restoreCommittedReviewStudyState() {
 }
 
 function renderGlobalStudyControls() {
+  studyTime.pulse();
   const reviewMode = inReviewMode();
   document.querySelectorAll("[data-study-mode]").forEach((button) => {
     const active = button.dataset.studyMode === state.studyPreferences.mode;
@@ -839,6 +927,172 @@ async function loadTrash() {
   const payload = await api("/api/trash");
   state.trash = Array.isArray(payload.trash) ? payload.trash : [];
   renderTrash();
+}
+
+let materialSourceRequestId = 0;
+
+async function openMaterialSource() {
+  if (!state.material) return;
+  const materialId = state.material.id;
+  const requestId = ++materialSourceRequestId;
+  elements.materialSourceName.textContent = state.material.title;
+  elements.materialSourceStatus.textContent = "正在读取来源…";
+  elements.materialSourceDetails.replaceChildren();
+  elements.materialSourceDialog.showModal();
+  try {
+    const { source } = await api(`/api/materials/${materialId}/source`);
+    if (requestId !== materialSourceRequestId || !elements.materialSourceDialog.open) return;
+    elements.materialSourceName.textContent = `${source.typeLabel} · ${source.title}`;
+    elements.materialSourceStatus.textContent = "";
+    if (source.url) {
+      const section = createSourceSection("原始链接");
+      const link = document.createElement("a");
+      link.className = "material-source-value";
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = source.url;
+      link.setAttribute("aria-label", `打开原始链接：${source.url}`);
+      const actions = document.createElement("div");
+      actions.className = "material-source-actions";
+      const open = link.cloneNode(false);
+      open.className = "quiet-button";
+      open.textContent = "打开原始网页 ↗";
+      open.setAttribute("aria-label", "打开原始网页");
+      actions.append(open, createSourceCopyButton("复制链接", source.url));
+      section.append(link, actions);
+      elements.materialSourceDetails.append(section);
+    }
+    const section = createSourceSection("本机音视频");
+    const file = source.localFile;
+    const note = document.createElement("p");
+    note.className = "trash-dialog-note";
+    if (file.available) {
+      const name = document.createElement("p");
+      name.className = "material-source-value";
+      name.textContent = file.originalName ? `上传时的文件名：${file.originalName}` : `保存的文件：${file.savedName}`;
+      const location = document.createElement("p");
+      location.className = "material-source-value";
+      location.textContent = file.path;
+      const actions = document.createElement("div");
+      actions.className = "material-source-actions";
+      if (file.canReveal) {
+        const reveal = document.createElement("button");
+        reveal.type = "button";
+        reveal.className = "quiet-button";
+        reveal.textContent = "在访达中显示";
+        reveal.addEventListener("click", async () => {
+          reveal.disabled = true;
+          try {
+            await api(`/api/materials/${materialId}/reveal-source`, { method: "POST", body: {} });
+            elements.materialSourceStatus.textContent = "已在访达中选中音视频文件";
+          } catch (error) { elements.materialSourceStatus.textContent = error.message; }
+          finally { reveal.disabled = false; }
+        });
+        actions.append(reveal);
+      }
+      actions.append(createSourceCopyButton("复制保存位置", file.path));
+      note.textContent = source.url
+        ? "这是导入时保存到本机、用于精听的音视频文件。"
+        : "这里定位的是工具保存的音视频副本。浏览器上传不会记录文件原先所在的文件夹。";
+      section.append(name, location, actions);
+    } else {
+      note.textContent = "本机音视频文件尚未保存或已被移动，暂时无法定位。";
+    }
+    section.append(note);
+    elements.materialSourceDetails.append(section);
+  } catch (error) {
+    if (requestId === materialSourceRequestId) elements.materialSourceStatus.textContent = `暂时无法读取来源：${error.message}`;
+  }
+}
+
+function createSourceSection(title) {
+  const section = document.createElement("section");
+  section.className = "material-source-section";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  section.append(heading);
+  return section;
+}
+
+function createSourceCopyButton(label, value) {
+  const button = document.createElement("button");
+  button.className = "quiet-button";
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      elements.materialSourceStatus.textContent = label === "复制链接" ? "链接已复制" : "保存位置已复制";
+    } catch { elements.materialSourceStatus.textContent = "暂时无法自动复制，请选中上方文字复制。"; }
+  });
+  return button;
+}
+
+function closeMaterialSource() {
+  ++materialSourceRequestId;
+  elements.materialSourceDialog.close();
+  elements.materialSourceButton.focus({ preventScroll: true });
+}
+
+async function openCorrectionMemory() {
+  state.correctionMemoryOpener = document.activeElement;
+  elements.correctionMemoryList.replaceChildren();
+  elements.correctionMemoryStatus.textContent = "正在读取本机纠错记忆…";
+  elements.correctionMemoryDialog.showModal();
+  try {
+    const { corrections } = await api("/api/correction-memory");
+    elements.correctionMemoryStatus.textContent = corrections.length
+      ? "只会参考已启用的简短词语；停用后，下一次识别就不再使用这条提示。"
+      : "还没有纠错记忆。修正原文时勾选“记住这次纠错”，保存后会出现在这里。";
+    for (const entry of corrections) {
+      const item = document.createElement("article");
+      item.className = "correction-memory-item";
+      const heading = document.createElement("strong");
+      heading.textContent = entry.hints.length ? entry.hints.map(hint => hint.after).join(" · ") : "仅修改原文";
+      const source = document.createElement("p");
+      source.className = "correction-memory-source";
+      source.textContent = entry.materialTitle;
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "查看修正前后";
+      const before = document.createElement("p");
+      before.textContent = `修正前：${entry.previousText}`;
+      const after = document.createElement("p");
+      after.textContent = `修正后：${entry.correctedText}`;
+      details.append(summary, before, after);
+      const toggle = document.createElement("button");
+      toggle.className = "quiet-button";
+      toggle.type = "button";
+      const renderToggle = () => {
+        toggle.textContent = entry.enabled ? "已启用 · 点击停用" : "已停用 · 点击启用";
+        toggle.setAttribute("aria-label", `${entry.enabled ? "停用" : "启用"}识别提示：${heading.textContent}`);
+        toggle.setAttribute("aria-pressed", String(entry.enabled));
+        toggle.disabled = !entry.hints.length;
+        if (!entry.hints.length) toggle.textContent = "没有可用于识别的简短词语";
+      };
+      toggle.addEventListener("click", async () => {
+        toggle.disabled = true;
+        try {
+          const payload = await api(`/api/materials/${entry.materialId}/corrections/${entry.id}`, {
+            method: "PATCH", body: { enabled: !entry.enabled },
+          });
+          entry.enabled = payload.correction.enabled;
+          showToast(entry.enabled ? "下次识别会参考这条纠错" : "已停用这条识别提示，原文修正仍保留");
+        } catch (error) { showToast(error.message); }
+        finally { renderToggle(); }
+      });
+      renderToggle();
+      item.append(heading, source, details, toggle);
+      elements.correctionMemoryList.append(item);
+    }
+  } catch (error) { elements.correctionMemoryStatus.textContent = `暂时无法读取：${error.message}`; }
+}
+
+function closeCorrectionMemory() {
+  elements.correctionMemoryDialog.close();
+  state.correctionMemoryOpener?.focus({ preventScroll: true });
+  state.correctionMemoryOpener = null;
 }
 
 async function openTrashDialog() {
@@ -1227,13 +1481,8 @@ async function confirmDeleteMaterial() {
 }
 
 function stopClientJobTrackingForMaterial(materialId) {
-  if (state.activeJobMaterialId !== materialId) return;
-  clearTimeout(state.pollTimer);
-  state.pollTimer = null;
-  state.activeJobId = null;
-  state.activeJobMaterialId = null;
-  setImportBusy(false);
-  elements.jobPanel.classList.add("is-hidden");
+  state.importTracker.remove(materialId);
+  renderImportJobs();
 }
 
 function loadLibraryPreferences() {
@@ -1246,6 +1495,41 @@ function loadLibraryPreferences() {
   } catch {
     return { order: [], pinned: [] };
   }
+}
+
+function loadAutoReveal() {
+  try { return localStorage.getItem(AUTO_REVEAL_STORAGE_KEY) === "true"; } catch { return false; }
+}
+
+function applyAutoRevealPreference() {
+  elements.autoRevealInput.checked = state.autoReveal;
+  elements.listenPromptTitle.textContent = state.autoReveal ? "听原声，结合讲解理解。" : "不看文字，听清这个片段。";
+  if (!state.material || !currentUnit()) return;
+  if (state.autoReveal) revealAnswer();
+  else {
+    state.revealed = false;
+    elements.answerArea.classList.add("is-hidden");
+    elements.revealButton.classList.remove("is-hidden");
+    clearPhraseExposureTracking();
+    renderSegmentContinuation(currentUnit(), currentUnits());
+  }
+}
+
+function loadDictationCollapsed() {
+  try {
+    return localStorage.getItem(DICTATION_COLLAPSED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function applyDictationVisibility() {
+  if (state.dictationCollapsed && document.activeElement === elements.dictationInput) {
+    elements.dictationToggleButton.focus({ preventScroll: true });
+  }
+  elements.dictationInput.classList.toggle("is-hidden", state.dictationCollapsed);
+  elements.dictationToggleButton.setAttribute("aria-expanded", String(!state.dictationCollapsed));
+  elements.dictationToggleButton.textContent = state.dictationCollapsed ? "展开听写" : "收起听写";
 }
 
 function loadLibraryRailCollapsed() {
@@ -1384,69 +1668,96 @@ function finishMaterialDrag() {
   elements.materialList.querySelectorAll(".is-drag-source").forEach((item) => item.classList.remove("is-drag-source"));
 }
 
-function switchImportTab(tab) {
-  const lark = tab === "lark";
-  elements.larkTab.classList.toggle("is-active", lark);
-  elements.fileTab.classList.toggle("is-active", !lark);
-  elements.larkTab.setAttribute("aria-selected", String(lark));
-  elements.fileTab.setAttribute("aria-selected", String(!lark));
-  elements.larkImport.classList.toggle("is-hidden", !lark);
-  elements.fileImport.classList.toggle("is-hidden", lark);
-  if (!lark) requestAnimationFrame(() => elements.dropZone.focus());
+function switchImportTab(tab, { focusPanel = true } = {}) {
+  for (const kind of IMPORT_KINDS) {
+    const active = tab === kind;
+    elements[`${kind}Tab`].classList.toggle("is-active", active);
+    elements[`${kind}Tab`].setAttribute("aria-selected", String(active));
+    elements[`${kind}Tab`].tabIndex = active ? 0 : -1;
+    elements[`${kind}Import`].classList.toggle("is-hidden", !active);
+  }
+  if (focusPanel) requestAnimationFrame(() => (tab === "file" ? elements.dropZone : elements[`${tab}Url`]).focus());
+}
+
+function importYouTube() {
+  return importMediaLink("youtube", normalizeYouTubeUrl);
+}
+
+function importPodcast() {
+  return importMediaLink("podcast", normalizeApplePodcastsUrl);
+}
+
+async function importMediaLink(kind, normalizeUrl) {
+  if (state.importBusy) return;
+  let url;
+  try { url = normalizeUrl(elements[`${kind}Url`].value); }
+  catch (error) { return showToast(error.message); }
+  setImportBusy(true);
+  try {
+    const payload = await api(`/api/import/${kind}`, { method: "POST", body: { url } });
+    acceptImport(payload);
+    elements[`${kind}Url`].value = "";
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setImportBusy(false);
+  }
 }
 
 async function importLark() {
+  if (state.importBusy) return;
   const url = elements.larkUrl.value.trim();
   if (!url) return showToast("请先粘贴飞书妙记链接");
   setImportBusy(true);
   try {
     const payload = await api("/api/import/lark", { method: "POST", body: { url } });
-    state.activeJobId = payload.job.id;
-    state.activeJobMaterialId = payload.material.id;
-    elements.jobPanel.classList.remove("is-hidden");
-    updateJobPanel(payload.job);
-    await loadMaterials();
-    pollJob(payload.job.id);
+    acceptImport(payload);
+    elements.larkUrl.value = "";
   } catch (error) {
     showToast(error.message);
+  } finally {
     setImportBusy(false);
   }
 }
 
 function uploadFile(file) {
+  if (state.importBusy) return;
   file = normalizePastedMediaFile(file);
   if (!file) return showToast("请选择 MP3、M4A、WAV、MP4 或 MOV 文件");
   setImportBusy(true);
-  elements.jobPanel.classList.remove("is-hidden");
-  elements.jobStage.textContent = "正在保存到本机";
-  elements.jobDetail.textContent = file.name;
+  elements.uploadPanel.classList.remove("is-hidden");
+  renderJobProgress(0, "正在保存到本机", file.name);
 
   const xhr = new XMLHttpRequest();
   xhr.open("POST", `/api/import/file?filename=${encodeURIComponent(file.name)}`);
   xhr.upload.addEventListener("progress", (event) => {
     if (!event.lengthComputable) return;
-    const value = Math.min(0.12, (event.loaded / event.total) * 0.12);
+    const value = event.loaded / event.total;
     renderJobProgress(value, `正在保存到本机`, `${Math.round((event.loaded / event.total) * 100)}% 已上传`);
   });
-  xhr.addEventListener("load", async () => {
+  const finishUpload = () => {
+    elements.uploadPanel.classList.add("is-hidden");
+    elements.fileInput.value = "";
+    setImportBusy(false);
+  };
+  xhr.addEventListener("load", () => {
     try {
       const payload = JSON.parse(xhr.responseText);
       if (xhr.status >= 400) throw new Error(payload.error || "文件导入失败");
-      state.activeJobId = payload.job.id;
-      state.activeJobMaterialId = payload.material.id;
-      updateJobPanel(payload.job);
-      await loadMaterials();
-      pollJob(payload.job.id);
+      acceptImport(payload);
     } catch (error) {
       showToast(error.message);
-      setImportBusy(false);
+    } finally {
+      finishUpload();
     }
   });
   xhr.addEventListener("error", () => {
     showToast("无法把文件保存到本地服务");
-    setImportBusy(false);
+    finishUpload();
   });
-  xhr.send(file);
+  xhr.addEventListener("abort", finishUpload);
+  try { xhr.send(file); }
+  catch (error) { finishUpload(); showToast(error.message); }
 }
 
 function handleFilePaste(event) {
@@ -1464,44 +1775,93 @@ function handleFilePaste(event) {
   }
 
   event.preventDefault();
-  if (elements.fileInput.disabled) return showToast("当前材料仍在处理中，请完成后再粘贴新的录音");
+  if (elements.fileInput.disabled) return showToast("正在提交材料，保存到本机后即可继续添加");
   elements.dropZone.classList.add("is-pasting");
   setTimeout(() => elements.dropZone.classList.remove("is-pasting"), 420);
   showToast(`已粘贴“${file.name}”，正在保存到本机`);
   uploadFile(file);
 }
 
-function pollJob(jobId) {
-  clearTimeout(state.pollTimer);
-  state.pollTimer = setTimeout(async () => {
-    if (state.activeJobId !== jobId) return;
-    try {
-      const payload = await api(`/api/jobs/${jobId}`);
-      updateJobPanel(payload.job);
-      await loadMaterials();
-      if (payload.job.status === "completed") {
-        state.activeJobId = null;
-        state.activeJobMaterialId = null;
-        setImportBusy(false);
-        showToast("材料已经准备好，可以开始精听");
-        return openMaterial(payload.job.materialId);
-      }
-      if (payload.job.status === "failed") {
-        state.activeJobId = null;
-        state.activeJobMaterialId = null;
-        setImportBusy(false);
-        return showToast(payload.job.error || "处理失败");
-      }
-      pollJob(jobId);
-    } catch (error) {
-      setImportBusy(false);
-      showToast(error.message);
-    }
-  }, 1500);
+function acceptImport(payload) {
+  state.importTracker.track(payload.job, payload.material);
+  renderImportJobs();
+  scheduleImportPoll();
+  // Acceptance unlocks the form immediately; library/network refresh is independent.
+  loadMaterials().catch(() => {});
+  showToast("已添加，正在后台处理。可以继续添加新材料。");
 }
 
-function updateJobPanel(job) {
-  renderJobProgress(job.progress || 0, job.stage, job.error || "可以离开此页面，处理完成后材料会保存在本机。");
+function scheduleImportPoll(delay = 1500) {
+  if (state.importPolling || state.importPollTimer || (!state.importTracker.active.length && !state.importRefreshPending)) return;
+  state.importPollTimer = setTimeout(pollImports, delay);
+}
+
+async function pollImports() {
+  state.importPollTimer = null;
+  state.importPolling = true;
+  let retryDelay = 1500;
+  try {
+    const entries = state.importTracker.active.filter((entry) => entry.jobId);
+    const results = await Promise.allSettled(entries.map((entry) => api(`/api/jobs/${encodeURIComponent(entry.jobId)}`, { signal: AbortSignal.timeout(10000) })));
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") state.importTracker.updateJob(result.value.job);
+      else {
+        state.importTracker.jobUnavailable(entries[index].jobId, result.reason);
+        retryDelay = 5000;
+      }
+    });
+    await loadMaterials({ signal: AbortSignal.timeout(10000) });
+    state.importRefreshPending = false;
+  } catch {
+    state.importRefreshPending = true;
+    retryDelay = 5000;
+    for (const entry of state.importTracker.active) entry.connectionError = "暂时无法更新进度，正在自动重试。";
+  } finally {
+    renderImportJobs();
+    state.importPolling = false;
+    scheduleImportPoll(retryDelay);
+  }
+}
+
+function renderImportJobs() {
+  const entries = [...state.importTracker.entries.values()];
+  elements.jobPanel.classList.toggle("is-hidden", !entries.length);
+  const count = state.importTracker.active.length;
+  elements.importJobsHeading.textContent = count ? `${count} 份材料正在后台处理` : "导入结果";
+  const existing = new Map([...elements.importJobList.children].map((card) => [card.dataset.materialId, card]));
+  for (const entry of entries) {
+    let card = existing.get(entry.materialId);
+    if (!card) {
+      card = document.createElement("li");
+      card.className = "import-job";
+      card.dataset.materialId = entry.materialId;
+      card.innerHTML = `<strong class="import-job-title"></strong>
+        <div class="job-meta"><span class="import-job-stage"></span><span class="import-job-percent"></span></div>
+        <div class="progress-track" aria-hidden="true"><span></span></div>
+        <p class="import-job-detail"></p>
+        <div class="import-job-actions"><button type="button" class="text-button import-job-open">开始精听</button>
+        <button type="button" class="text-button import-job-dismiss">收起</button></div>`;
+      card.querySelector(".import-job-open").addEventListener("click", () => openMaterial(entry.materialId));
+      card.querySelector(".import-job-dismiss").addEventListener("click", () => stopClientJobTrackingForMaterial(entry.materialId));
+      elements.importJobList.prepend(card);
+    }
+    existing.delete(entry.materialId);
+    const active = isImportActive(entry);
+    const percent = entry.progress == null ? null : Math.max(0, Math.min(100, Math.round(entry.progress * 100)));
+    card.querySelector(".import-job-title").textContent = entry.title || "正在导入";
+    card.querySelector(".import-job-stage").textContent = entry.stage || (active ? "正在处理" : "处理完成");
+    card.querySelector(".import-job-percent").textContent = entry.status === "failed" ? "失败" : percent == null ? "处理中" : `${percent}%`;
+    card.querySelector(".progress-track").classList.toggle("is-hidden", percent == null);
+    card.querySelector(".progress-track span").style.width = `${percent ?? 0}%`;
+    card.classList.toggle("is-failed", entry.status === "failed");
+    const detail = entry.error || entry.connectionError || entry.warning || (active ? "可继续添加材料，也可离开此页面。" : "已保存到本机，可从材料库打开。");
+    card.querySelector(".import-job-detail").textContent = detail;
+    const openButton = card.querySelector(".import-job-open");
+    openButton.classList.toggle("is-hidden", !entry.canOpen);
+    openButton.setAttribute("aria-label", `开始精听：${entry.title}`);
+    card.querySelector(".import-job-dismiss").classList.toggle("is-hidden", active);
+  }
+  for (const card of existing.values()) card.remove();
 }
 
 function renderJobProgress(progress, stage, detail) {
@@ -1513,7 +1873,13 @@ function renderJobProgress(progress, stage, detail) {
 }
 
 function setImportBusy(busy) {
+  state.importBusy = busy;
+  elements.importYouTubeButton.disabled = busy;
+  elements.youtubeUrl.disabled = busy;
+  elements.importPodcastButton.disabled = busy;
+  elements.podcastUrl.disabled = busy;
   elements.importLarkButton.disabled = busy;
+  elements.larkUrl.disabled = busy;
   elements.fileInput.disabled = busy;
   elements.dropZone.classList.toggle("is-busy", busy);
   elements.dropZone.setAttribute("aria-disabled", String(busy));
@@ -2047,6 +2413,7 @@ function renderCurrentUnit() {
 
   const ids = unitSentenceIds(unit);
   const progress = state.material.progress || {};
+  if (state.autoReveal) state.revealed = true;
   const savedDictation = ids.map((id) => progress[id]?.dictation).find(Boolean) || "";
   const savedParagraphReview = findParagraphReview(unit.id);
 
@@ -2152,7 +2519,7 @@ function createSentenceRenderFallback({ sentence, sentenceId, index, total, unit
   const original = document.createElement("p");
   original.className = "sentence-study-original";
   original.textContent = sentence?.text || "这句原文暂时没有载入。";
-  content.append(meta, original);
+  content.append(meta, original, createSentenceAskButton(sentence));
   header.append(sequence, content);
 
   const notice = document.createElement("div");
@@ -2214,9 +2581,7 @@ function createSentenceBreakdown(sentence, index, total, analysisProgressText) {
   metaRow.className = "sentence-study-meta-row";
   const meta = document.createElement("p");
   meta.className = "sentence-study-meta";
-  meta.textContent = total > 1
-    ? `${sentence.speaker || "Speaker"} · ${formatClock(sentence.start)}–${formatClock(sentence.end)}`
-    : `${sentence.speaker || "Speaker"}`;
+  meta.textContent = `${sentence.speaker || "Speaker"} · ${formatClock(sentence.start)}–${formatClock(sentence.end)}`;
   const audioButton = createSentenceAudioButton(sentence);
   const editButton = document.createElement("button");
   editButton.type = "button";
@@ -2249,24 +2614,32 @@ function createSentenceBreakdown(sentence, index, total, analysisProgressText) {
   });
   const editActions = document.createElement("div");
   editActions.className = "sentence-transcript-entry-actions";
-  editActions.append(editButton);
+  editActions.append(createSentenceAskButton(sentence, index), editButton);
   metaRow.append(meta);
   if (audioButton) metaRow.append(audioButton);
   originalGroup.append(metaRow, original, editActions);
   header.append(sequence, originalGroup);
   article.append(header);
 
-  const analysis = sentence.analysis;
+  const analysis = sentence.analysis || sentence.previousAnalysis;
+  const explanationSection = createSentenceExplanation(sentence, index);
   if (!analysis) {
     const pending = document.createElement("p");
     pending.className = "sentence-analysis-pending";
     pending.textContent = analysisProgressText;
     article.append(pending);
+    if (explanationSection) article.append(explanationSection);
     return article;
   }
 
+  if (analysis.derivedFromFragments) {
+    const note = document.createElement("p");
+    note.className = "sentence-analysis-pending";
+    note.textContent = sentence.analysis ? "已合并为完整句，保留了原有分句讲解。" : `已合并为完整句，先保留已有讲解。${analysisProgressText}`;
+    article.append(note);
+  }
   if (analysis.translationZh) article.append(createSentenceDetail("中文意思", analysis.translationZh, "translation"));
-  if (analysis.explanationZh) article.append(createSentenceDetail("表达与语法", analysis.explanationZh, "explanation"));
+  if (explanationSection) article.append(explanationSection);
 
   const notes = uniqueSpokenFormNotes((analysis.spokenFormNotes || []).map((note) => ({ ...note, sentenceId: sentence.id })));
   if (notes.length) {
@@ -2307,6 +2680,20 @@ function createSentenceBreakdown(sentence, index, total, analysisProgressText) {
   const savedNotes = createSavedLearningNotes(sentence.id, phrases);
   if (savedNotes) article.append(savedNotes);
   return article;
+}
+
+function createSentenceAskButton(sentence, index = null) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "text-button sentence-ask-button";
+  button.textContent = "深入问问";
+  button.setAttribute("aria-label", index === null ? "深入问问这句回应" : `深入问问第 ${index + 1} 句`);
+  button.title = "带上本句原文和上下文提问";
+  button.addEventListener("click", () => {
+    const context = createSentenceAskContext(sentence);
+    if (context) openAskPanel(context, button);
+  });
+  return button;
 }
 
 function openSentenceTranscriptEditor({
@@ -2354,6 +2741,14 @@ function openSentenceTranscriptEditor({
   hint.textContent = normalizedSuggestion
     ? suggestionCopy
     : "只修改本机逐字稿；原声时间和说话人不变，本句讲解会重新生成。";
+  const learnLabel = document.createElement("label");
+  learnLabel.className = "transcript-learning-option";
+  const learnCheckbox = document.createElement("input");
+  learnCheckbox.type = "checkbox";
+  learnCheckbox.checked = true;
+  learnLabel.append(learnCheckbox, "记住这次纠错，用于以后的识别");
+  const learnPreview = document.createElement("p");
+  learnPreview.className = "sentence-transcript-edit-hint";
   const status = document.createElement("p");
   status.className = "sentence-transcript-edit-status";
   status.setAttribute("role", "status");
@@ -2369,11 +2764,15 @@ function openSentenceTranscriptEditor({
   saveButton.textContent = "保存并更新讲解";
   actions.append(cancelButton, saveButton);
   label.append(textarea);
-  editor.append(label, hint, status, actions);
+  editor.append(label, hint, learnLabel, learnPreview, status, actions);
 
   const syncSaveState = () => {
     const nextText = textarea.value.trim();
     saveButton.disabled = editor.classList.contains("is-saving") || !nextText || nextText === sentence.text;
+    const hints = extractCorrectionHints(sentence.text, nextText);
+    learnPreview.textContent = !learnCheckbox.checked ? "这次只修改原文，不加入识别提示。"
+      : hints.length ? `下次识别参考：${hints.map(item => item.after).join(" · ")}。仅纠正听错的词时保留勾选；润色句子时可取消。`
+      : "检测到名字或简短表达的变化后，会在这里显示识别提示。标点和大段改写只保存原文。";
   };
   const close = () => {
     editor.remove();
@@ -2383,6 +2782,7 @@ function openSentenceTranscriptEditor({
   };
   cancelButton.addEventListener("click", close);
   textarea.addEventListener("input", syncSaveState);
+  learnCheckbox.addEventListener("change", syncSaveState);
   editor.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -2403,6 +2803,7 @@ function openSentenceTranscriptEditor({
     const previousScrollTop = practiceColumn?.scrollTop || 0;
     editor.classList.add("is-saving");
     textarea.disabled = true;
+    learnCheckbox.disabled = true;
     cancelButton.disabled = true;
     saveButton.disabled = true;
     saveButton.textContent = "保存中…";
@@ -2411,7 +2812,7 @@ function openSentenceTranscriptEditor({
     try {
       const payload = await api(`/api/materials/${materialId}/sentences/${sentence.id}`, {
         method: "PATCH",
-        body: { text: nextText, expectedText: sentence.text },
+        body: { text: nextText, expectedText: sentence.text, learnForRecognition: learnCheckbox.checked },
       });
       if (state.material?.id !== materialId) {
         showToast("这句原文已保存在原材料中，并开始更新讲解");
@@ -2419,7 +2820,6 @@ function openSentenceTranscriptEditor({
       }
       state.material = payload.material;
       if (payload.job) {
-        state.activeJobId = payload.job.id;
         state.material.analysisStatus = "processing";
         state.material.stage = payload.job.stage || "正在重新生成本句讲解";
         scheduleAnalysisStatusPoll(500);
@@ -2436,10 +2836,13 @@ function openSentenceTranscriptEditor({
         replacement.querySelector(".sentence-transcript-edit-button")?.focus({ preventScroll: true });
         if (practiceColumn) practiceColumn.scrollTop = previousScrollTop;
       }
-      showToast("这句原文已修正，正在更新本句讲解");
+      showToast(payload.warning || (payload.correction?.enabled
+        ? "原文已修正，已记住这次纠错；正在更新本句讲解"
+        : "这句原文已修正，正在更新本句讲解"));
     } catch (error) {
       editor.classList.remove("is-saving");
       textarea.disabled = false;
+      learnCheckbox.disabled = false;
       cancelButton.disabled = false;
       saveButton.textContent = "保存并更新讲解";
       const latestText = error.status === 409 && typeof error.payload?.currentText === "string"
@@ -2468,7 +2871,7 @@ function openSentenceTranscriptEditor({
 }
 
 function createSentenceAudioButton(sentence) {
-  if (!hasReliableSentencePlayback(sentence, state.media?.duration)) return null;
+  if (!hasReliableSentencePlayback(sentence, state.media?.duration, { sourceType: state.material?.sourceType })) return null;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "sentence-audio-button";
@@ -2500,6 +2903,63 @@ function createSentenceDetail(labelText, text, kind) {
   const copy = document.createElement("p");
   copy.textContent = text;
   section.append(label, copy);
+  return section;
+}
+
+function createSentenceExplanation(sentence, index) {
+  const materialId = state.material?.id;
+  const saved = findExplanationReview(state.material, sentence.id);
+  const text = explanationReviewText(sentence, saved, inReviewMode());
+  if (!text) return null;
+  const section = createSentenceDetail("表达与语法", text, "explanation");
+  const heading = document.createElement("div");
+  heading.className = "sentence-detail-heading";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "text-button explanation-review-button";
+  const syncButton = () => {
+    const isSaved = Boolean(findExplanationReview(state.material, sentence.id));
+    button.textContent = isSaved ? "已加入复习" : "加入复习";
+    button.classList.toggle("is-saved", isSaved);
+    button.setAttribute("aria-pressed", String(isSaved));
+    button.setAttribute("aria-label", `${isSaved ? "移除" : "收藏"}第 ${index + 1} 句的表达与语法复习`);
+    button.title = isSaved ? "点击从复习中移除这段讲解" : "保存这段讲解，复习时可回听对应原句";
+    section.classList.toggle("is-saved", isSaved);
+  };
+  syncButton();
+  button.addEventListener("click", async () => {
+    if (button.disabled || state.material?.id !== materialId) return;
+    const previousReviewKey = currentReviewQueueItem()?.key || "";
+    const previousReviewIndex = state.reviewQueueIndex;
+    const existing = findExplanationReview(state.material, sentence.id);
+    button.disabled = true;
+    try {
+      const payload = existing
+        ? await api(`/api/materials/${materialId}/review-items/${existing.id}`, { method: "DELETE" })
+        : await api(`/api/materials/${materialId}/review-items`, {
+          method: "POST", body: createExplanationReview(sentence, text),
+        });
+      // A late response must not replace a newly opened material or newer AI analysis.
+      if (state.material?.id === materialId) {
+        if (existing) state.material.reviewItems = reviewItems().filter((item) => item.id !== existing.id);
+        else state.material.reviewItems = [
+          ...reviewItems().filter((item) => item.id !== payload.reviewItem.id),
+          payload.reviewItem,
+        ];
+        syncButton();
+        if (elements.segmentDrawer.classList.contains("is-open")) renderSegmentDirectory();
+        await syncReviewQueueAfterReviewMutation({ previousReviewKey, previousReviewIndex, materialId });
+      }
+      showToast(existing ? "已从复习中移除这段讲解" : "表达与语法已加入复习，可回听对应原句");
+      loadMaterials().catch(() => {});
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  heading.append(section.querySelector(".sentence-detail-label"), button);
+  section.prepend(heading);
   return section;
 }
 
@@ -2812,7 +3272,7 @@ function questionHistoryItems(material = state.material) {
     if (item.id) historyIds.add(item.id);
     if (key) compositeKeys.add(key);
   }
-  for (const item of reviewItems(material).filter((candidate) => candidate.kind === "qa")) {
+  for (const item of reviewItems(material).filter((candidate) => candidate.kind === "qa" && !isExplanationReview(candidate))) {
     const key = questionHistoryKey(item);
     // A review linked to a real history record is not a second copy of that
     // record. This also prevents a deliberately deleted history record from
@@ -3534,10 +3994,22 @@ function collapseAskRail(restoreFocus = true) {
 }
 
 function expandAskRail() {
-  if (!state.material || !askCardsForMaterial().length) return;
+  if (!state.material) return;
+  if (!askCardsForMaterial().length) {
+    const context = createSentenceAskContext(currentAskSentence());
+    if (context) openAskPanel(context, elements.askRailToggle);
+    return;
+  }
   state.askRailCollapsed = false;
   renderAskRail({ preserveScroll: true });
   requestAnimationFrame(() => elements.closeAskPanelButton.focus({ preventScroll: true }));
+}
+
+function currentAskSentence() {
+  const unit = currentUnit();
+  if (!unit || !state.material) return null;
+  return unitSentenceIds(unit).map(id => state.material.sentences.find(sentence => sentence.id === id))
+    .find(sentence => sentence?.text?.trim()) || null;
 }
 
 function renderAskRail({ preserveScroll = false, focusCardId = "" } = {}) {
@@ -3552,10 +4024,13 @@ function renderAskRail({ preserveScroll = false, focusCardId = "" } = {}) {
     elements.askThreadList.replaceChildren();
     elements.askRailTotalCount.textContent = "0 条问问";
     elements.askRailToggleCount.textContent = "0";
+    elements.askRailToggleCount.classList.add("is-hidden");
     elements.askRailPendingCount.classList.add("is-hidden");
     elements.askRailTogglePending.classList.add("is-hidden");
     renderAskTextAnchors([]);
     hideAskRail();
+    elements.askRailToggle.classList.toggle("is-hidden", !currentAskSentence());
+    elements.askRailToggle.setAttribute("aria-expanded", "false");
     return;
   }
   if (!cards.some((card) => card.cardId === state.activeAskThreadId)) {
@@ -3569,6 +4044,7 @@ function renderAskRail({ preserveScroll = false, focusCardId = "" } = {}) {
   const counts = countAskThreadCards(cards);
   elements.askRailTotalCount.textContent = `${counts.total} 条问问`;
   elements.askRailToggleCount.textContent = String(counts.total);
+  elements.askRailToggleCount.classList.remove("is-hidden");
   elements.askRailPendingCount.textContent = `${counts.pending} 条生成中`;
   elements.askRailPendingCount.classList.toggle("is-hidden", counts.pending === 0);
   elements.askRailTogglePending.classList.toggle("is-hidden", counts.pending === 0);
@@ -4328,7 +4804,7 @@ async function togglePlayback() {
 async function toggleSentencePlayback(sentence, button) {
   const media = state.media;
   if (!media || !sentence) return;
-  if (!hasReliableSentencePlayback(sentence, media.duration)) {
+  if (!hasReliableSentencePlayback(sentence, media.duration, { sourceType: state.material?.sourceType })) {
     showToast("这句未能在原声中可靠匹配，已避免播放错误片段");
     return;
   }
@@ -4689,6 +5165,7 @@ function togglePronunciation(sourceText, lang, button) {
     utterance.volume = 1;
     utterance.voice = voice;
     state.pronunciationUtterance = utterance;
+    utterance.onstart = () => studyTime.speechStart();
     utterance.onend = () => {
       if (requestId === state.pronunciationRequestId && state.pronunciationUtterance === utterance) {
         clearPronunciationState();
@@ -4745,6 +5222,7 @@ function stopPronunciation() {
 }
 
 function clearPronunciationState() {
+  studyTime.speechEnd();
   state.pronunciationButton?.classList.remove("is-speaking");
   state.pronunciationButton?.setAttribute("aria-pressed", "false");
   state.pronunciationButton = null;
@@ -5102,6 +5580,7 @@ function openTranscriptEditor() {
   const unit = currentUnit();
   if (!unit || state.mode !== "sentences") return;
   elements.transcriptEditInput.value = unit.text;
+  elements.transcriptLearnCheckbox.checked = true;
   elements.editTranscriptPanel.classList.remove("is-hidden");
   elements.transcriptEditInput.focus();
 }
@@ -5118,7 +5597,7 @@ async function saveTranscriptEdit() {
   try {
     const payload = await api(`/api/materials/${materialId}/sentences/${unit.id}`, {
       method: "PATCH",
-      body: { text, expectedText: unit.text },
+      body: { text, expectedText: unit.text, learnForRecognition: elements.transcriptLearnCheckbox.checked },
     });
     if (state.material?.id !== materialId) return;
     state.material = payload.material;
@@ -5138,7 +5617,6 @@ async function retryAnalysis() {
   try {
     const payload = await api(`/api/materials/${state.material.id}/analyze`, { method: "POST", body: {} });
     elements.analysisRetry.classList.add("is-hidden");
-    state.activeJobId = payload.job.id;
     state.material.analysisStatus = "processing";
     scheduleAnalysisStatusPoll(500);
     showToast("所选 AI 正在重新生成讲解");
@@ -5352,6 +5830,7 @@ async function runToastAction() {
 
 async function api(url, options = {}) {
   const init = { method: options.method || "GET", headers: {} };
+  if (options.signal) init.signal = options.signal;
   if (options.body !== undefined) {
     init.headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(options.body);
