@@ -1,14 +1,14 @@
-# 英语精听训练
+# 原声精听｜AI 英语精听
 
 register: product
 
 ## Product purpose
 
-Turn real English meeting recordings into intensive English listening practice without replacing the original voices. The current release is a source-available, noncommercial, locally self-hosted macOS build for one learner per installation.
+Turn YouTube videos, podcast episodes, and real English recordings into AI-assisted intensive listening practice without replacing the original voices. The current release is a source-available, noncommercial, locally self-hosted macOS build for one learner per installation.
 
 ## Primary user
 
-The learner imports an English work meeting from a Feishu/Lark Minutes link or a local audio/video file. They want to hear the real meeting again in manageable units, check what they heard, understand workplace expressions, and return to difficult moments later.
+The learner imports a public YouTube video, an Apple Podcasts episode, a Feishu/Lark Minutes link, or a local audio/video file. They want to practice with content they care about, check what they heard, understand expressions in context, and return to difficult moments later.
 
 ## Core loop
 
@@ -18,7 +18,7 @@ Import real material, listen without text, optionally type what was heard, revea
 
 - Original sound is the source of truth. Never generate replacement speech.
 - Local media can enter through the file picker, drag and drop, or a pasted Mac Voice Memos recording; all three use the same local-only import pipeline.
-- Real work context matters more than textbook completeness.
+- Real context and the learner's interests matter more than textbook completeness.
 - Listening comes before reading. Explanations stay hidden until the learner asks.
 - Learning is learner-led after reveal. Any selected expression can become an in-context question for the learner's selected AI provider and, when useful, a review note bound to its exact natural sentence.
 - The application has one global study mode. Intensive listening follows a single material from its saved natural segment; review draws only saved review targets and can span every material or stay within one remembered material scope. The last mode and review scope persist locally.

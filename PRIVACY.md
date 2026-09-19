@@ -12,7 +12,7 @@ default, or `LISTENING_DATA_DIR` when configured):
 - original audio and screen recordings;
 - imported and locally generated transcripts;
 - listening progress, dictation, review items, learner feedback, and study
-  position;
+  position, study-time statistics, and transcript-correction memory;
 - AI question history, generated explanations, and the local provider/model
   preference; and
 - the 30-day recoverable trash.
@@ -37,6 +37,10 @@ or account usage with another user.
   by this application. The learner chooses the provider and model on first
   launch, can switch later from the global setting, and the application does
   not silently fall back to the other provider.
+- **YouTube / Apple Podcasts:** when a user imports a public video or episode
+  link, `yt-dlp` contacts the source platform and its media hosts to download
+  that item. Speech recognition then runs locally. This feature does not
+  request account cookies or support private or paid-only content.
 - **Feishu/Lark:** when a user explicitly imports a Minutes link, the local
   Feishu/Lark tooling contacts that service using the user's own account and
   permissions to retrieve the selected material.

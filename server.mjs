@@ -9,8 +9,16 @@ import { answerLearningQuestion, answerPhraseGuide } from "./lib/analysis.mjs";
 import { assertProviderSelectionAvailable, getAiProviderStatuses, testAiProviderSelection } from "./lib/ai-providers.mjs";
 import { captureAiSettings, readAiSettings, saveAiSettings, validateAiSettingsInput } from "./lib/ai-settings.mjs";
 import { DATA_ROOT, HOST, MAX_UPLOAD_BYTES, MODEL_PATH, PORT, PUBLIC_ROOT } from "./lib/config.mjs";
-import { addAnalysis, importLarkMaterial, importLocalMaterial } from "./lib/importers.mjs";
+import { addAnalysis, importLarkMaterial, importLocalMaterial, importYouTubeMaterial, importApplePodcastMaterial } from "./lib/importers.mjs";
+import { requireYouTubeDownloader } from "./lib/youtube.mjs";
+import { normalizeYouTubeUrl } from "./public/youtube-url-utils.js";
+import { requireLinkDownloader } from "./lib/link-downloader.mjs";
+import { normalizeApplePodcastsUrl } from "./public/apple-podcasts-url-utils.js";
 import { createJob, recoverInterruptedJobs } from "./lib/jobs.mjs";
+import { listCorrectionMemory, setCorrectionEnabled } from "./lib/correction-memory.mjs";
+import { getMaterialSource, originalUploadName, revealMaterialSource } from "./lib/material-source.mjs";
+import { canonicalParagraphId, canonicalSentenceId } from "./lib/material-sentence-boundaries.mjs";
+import { createStudyTimeStore } from "./lib/study-time.mjs";
 import {
   normalizeKnowledgeText,
   PHRASE_SIGNAL_EVENTS,
@@ -65,6 +73,7 @@ const mimeTypes = {
 const allowedExtensions = new Set([".mp3", ".m4a", ".wav", ".mp4", ".mov"]);
 const LOCAL_ORIGIN = `http://${HOST}:${PORT}`;
 const LOCAL_HOST = new URL(LOCAL_ORIGIN).host.toLowerCase();
+const studyTimeStore = createStudyTimeStore();
 
 await ensureStorage();
 await purgeExpiredTrash();
@@ -76,6 +85,18 @@ const server = http.createServer(async (request, response) => {
   try {
     enforceLocalRequestHost(request);
     enforceLocalMutationRequest(request, url);
+    if (request.method === "GET" && url.pathname === "/api/study-time") {
+      return sendJson(response, 200, await studyTimeStore.summary({
+        timeZone: url.searchParams.get("timeZone") || "Asia/Shanghai",
+        days: Number(url.searchParams.get("days") || 7),
+      }));
+    }
+    if (request.method === "POST" && url.pathname === "/api/study-time/heartbeat") {
+      const body = await readJson(request);
+      return sendJson(response, 200, await studyTimeStore.record(body.intervals, {
+        timeZone: body.timeZone || "Asia/Shanghai", days: body.days ?? 7,
+      }));
+    }
     if (request.method === "GET" && url.pathname === "/api/status") {
       return sendJson(response, 200, await getSystemStatus());
     }
@@ -98,6 +119,17 @@ const server = http.createServer(async (request, response) => {
       const selection = assertProviderSelectionAvailable(requested, await getAiProviderStatuses());
       const result = await testAiProviderSelection(selection);
       return sendJson(response, 200, { ok: true, provider: selection.provider, model: selection.model, result });
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/correction-memory") {
+      return sendJson(response, 200, { corrections: await listCorrectionMemory() });
+    }
+    const correctionMatch = url.pathname.match(/^\/api\/materials\/([a-z0-9-]+)\/corrections\/([a-z0-9-]+)$/i);
+    if (request.method === "PATCH" && correctionMatch) {
+      const body = await readJson(request);
+      if (typeof body.enabled !== "boolean") throw httpError(400, "纠错记忆状态无效");
+      const correction = await setCorrectionEnabled(correctionMatch[1], correctionMatch[2], body.enabled);
+      return sendJson(response, 200, { correction });
     }
 
     if (request.method === "GET" && url.pathname === "/api/materials") {
@@ -205,6 +237,15 @@ const server = http.createServer(async (request, response) => {
       return sendJson(response, 200, { trashed: true, materialId: deleted.id, trashEntry: deleted });
     }
 
+    const sourceMatch = url.pathname.match(/^\/api\/materials\/([a-z0-9-]+)\/source$/i);
+    if (request.method === "GET" && sourceMatch) {
+      return sendJson(response, 200, { source: await getMaterialSource(await readMaterial(sourceMatch[1])) });
+    }
+    const revealSourceMatch = url.pathname.match(/^\/api\/materials\/([a-z0-9-]+)\/reveal-source$/i);
+    if (request.method === "POST" && revealSourceMatch) {
+      return sendJson(response, 200, await revealMaterialSource(await readMaterial(revealSourceMatch[1])));
+    }
+
     const mediaMatch = url.pathname.match(/^\/api\/materials\/([a-z0-9-]+)\/media$/i);
     if (request.method === "GET" && mediaMatch) {
       return await streamMaterialMedia(request, response, mediaMatch[1]);
@@ -213,6 +254,30 @@ const server = http.createServer(async (request, response) => {
     const jobMatch = url.pathname.match(/^\/api\/jobs\/([a-z0-9-]+)$/i);
     if (request.method === "GET" && jobMatch) {
       return sendJson(response, 200, { job: await readJob(jobMatch[1]) });
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/import/podcast") {
+      const body = await readJson(request);
+      const sourceUrl = normalizeApplePodcastsUrl(body?.url);
+      await requireLinkDownloader("Apple Podcasts");
+      const aiSettings = await captureAnalysisSelection();
+      const material = await createMaterial({ title: "正在读取 Apple Podcasts 单集", sourceType: "apple-podcasts", sourceUrl });
+      const job = await createJob("podcast-import", material.id, (report) => (
+        importApplePodcastMaterial(material.id, sourceUrl, report, { aiSettings })
+      ), { aiSettings });
+      return sendJson(response, 202, { material, job });
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/import/youtube") {
+      const body = await readJson(request);
+      const sourceUrl = normalizeYouTubeUrl(body?.url);
+      await requireYouTubeDownloader();
+      const aiSettings = await captureAnalysisSelection();
+      const material = await createMaterial({ title: "正在读取 YouTube 视频", sourceType: "youtube", sourceUrl });
+      const job = await createJob("youtube-import", material.id, (report) => (
+        importYouTubeMaterial(material.id, sourceUrl, report, { aiSettings })
+      ), { aiSettings });
+      return sendJson(response, 202, { material, job });
     }
 
     if (request.method === "POST" && url.pathname === "/api/import/lark") {
@@ -261,12 +326,13 @@ const server = http.createServer(async (request, response) => {
     const askMatch = url.pathname.match(/^\/api\/materials\/([a-z0-9-]+)\/ask$/i);
     if (request.method === "POST" && askMatch) {
       const body = await readJson(request);
-      const sentenceId = cleanId(body.sentenceId, "缺少问题对应的自然句");
+      let sentenceId = cleanId(body.sentenceId, "缺少问题对应的自然句");
       const selectedText = cleanText(body.selectedText, 300, "请先选择或指定想问的内容");
       const question = cleanText(body.question, 1000, "请输入你的问题");
       const textAnchor = sanitizeQaTextAnchor(body);
       const aiSettings = await captureAiSettings();
       const material = await readMaterial(askMatch[1]);
+      sentenceId = canonicalSentenceId(material, sentenceId);
       if (findAnalyzedPhrase(material, sentenceId, selectedText)) {
         await saveValidatedPhraseSignal({
           event: "asked",
@@ -287,13 +353,14 @@ const server = http.createServer(async (request, response) => {
     const phraseGuideMatch = url.pathname.match(/^\/api\/materials\/([a-z0-9-]+)\/phrase-guides$/i);
     if (request.method === "POST" && phraseGuideMatch) {
       const body = await readJson(request);
-      const sentenceId = cleanId(body.sentenceId, "缺少表达对应的自然句");
+      let sentenceId = cleanId(body.sentenceId, "缺少表达对应的自然句");
       const phraseText = cleanText(body.phraseText, 300, "表达不能为空");
       if (typeof body.expectedSentenceText !== "string" || !body.expectedSentenceText.trim()) {
         throw httpError(400, "缺少表达对应的原句版本");
       }
       const expectedSentenceText = body.expectedSentenceText.trim();
       const material = await readMaterial(phraseGuideMatch[1]);
+      sentenceId = canonicalSentenceId(material, sentenceId);
       const sentence = material.sentences.find((item) => item.id === sentenceId);
       if (!sentence) throw httpError(400, "没有找到表达对应的自然句");
       if (sentence.text !== expectedSentenceText) {
@@ -302,7 +369,7 @@ const server = http.createServer(async (request, response) => {
           currentSentenceText: sentence.text,
         });
       }
-      const phrase = (sentence.analysis?.phrases || []).find((item) => (
+      const phrase = ((sentence.analysis || sentence.previousAnalysis)?.phrases || []).find((item) => (
         String(item.text || "").trim() === phraseText
       ));
       if (!phrase) throw httpError(400, "这条表达已不在当前句子的讲解中");
@@ -390,10 +457,12 @@ const server = http.createServer(async (request, response) => {
       const body = await readJson(request);
       if (typeof body.text !== "string" || !body.text.trim()) throw httpError(400, "原文不能为空");
       if (typeof body.expectedText !== "string") throw httpError(400, "缺少待修正原文的版本信息");
+      if (body.learnForRecognition !== undefined && typeof body.learnForRecognition !== "boolean") throw httpError(400, "纠错记忆选项无效");
       let updated;
       try {
         updated = await updateSentenceText(sentenceMatch[1], sentenceMatch[2], body.text, {
           expectedText: body.expectedText,
+          learnForRecognition: body.learnForRecognition,
         });
       } catch (error) {
         if (error.code !== "SENTENCE_EDIT_CONFLICT") throw error;
@@ -412,7 +481,7 @@ const server = http.createServer(async (request, response) => {
           warning = `${error.message}；原文已保存，讲解仍为待生成状态。`;
         }
       }
-      return sendJson(response, 200, { material: updated.material, job, ...(warning ? { warning } : {}) });
+      return sendJson(response, 200, { material: updated.material, job, correction: updated.correction, recognitionHints: updated.recognitionHints || [], ...(warning ? { warning } : {}) });
     }
 
     const analyzeMatch = url.pathname.match(/^\/api\/materials\/([a-z0-9-]+)\/analyze$/i);
@@ -457,15 +526,16 @@ server.listen(PORT, HOST, async () => {
 
 async function receiveLocalFile(request, response, url) {
   const rawName = url.searchParams.get("filename") || "meeting-audio";
-  const decoded = decodeURIComponent(rawName);
-  const extension = path.extname(decoded).toLowerCase();
+  const originalName = originalUploadName(rawName);
+  const originalExtension = path.extname(originalName);
+  const extension = originalExtension.toLowerCase();
   if (!allowedExtensions.has(extension)) throw httpError(400, "支持 MP3、M4A、WAV、MP4 和 MOV 文件");
 
   const contentLength = Number(request.headers["content-length"] || 0);
   if (contentLength > MAX_UPLOAD_BYTES) throw httpError(413, "文件超过本地工具的上传上限");
   const aiSettings = await captureAnalysisSelection();
 
-  const safeStem = path.basename(decoded, extension).replace(/[^\p{L}\p{N}._ -]+/gu, "_").slice(0, 100) || "meeting";
+  const safeStem = path.basename(originalName, originalExtension).replace(/[^\p{L}\p{N}._ -]+/gu, "_").slice(0, 100) || "meeting";
   const material = await createMaterial({ title: safeStem, sourceType: "local" });
   const relativeMedia = `source${extension}`;
   const target = path.join(materialDir(material.id), relativeMedia);
@@ -477,7 +547,7 @@ async function receiveLocalFile(request, response, url) {
   await pipeline(request, fs.createWriteStream(target, { flags: "wx" }));
 
   const savedMaterial = await updateMaterial(material.id, (latest) => {
-    latest.media = { file: relativeMedia, kind: null, size: received };
+    latest.media = { file: relativeMedia, originalName, kind: null, size: received };
     latest.stage = "文件已保存，等待本地转写";
     return latest;
   });
@@ -525,11 +595,12 @@ function enforceLocalMutationRequest(request, url) {
 }
 
 async function getSystemStatus() {
-  const [ffmpeg, ffprobe, whisper, lark, model, settings, providers] = await Promise.all([
+  const [ffmpeg, ffprobe, whisper, lark, youtube, model, settings, providers] = await Promise.all([
     commandExists("ffmpeg"),
     commandExists("ffprobe"),
     commandExists("whisper-cli"),
     commandExists("lark-cli"),
+    commandExists("yt-dlp"),
     modelAvailable(),
     readAiSettings(),
     getAiProviderStatuses(),
@@ -577,6 +648,8 @@ async function getSystemStatus() {
       cursorLoggedIn: providers.cursor.authenticated,
       lark: Boolean(lark),
       larkUserReady,
+      youtube: Boolean(youtube),
+      applePodcasts: Boolean(youtube),
     },
     whisperModelPath: MODEL_PATH,
   };
@@ -666,12 +739,12 @@ function sanitizeReviewItem(material, body, kind) {
   const item = { kind };
   if (body.id !== undefined) item.id = cleanId(body.id, "复习记录 ID 无效");
   if (kind === "paragraph") {
-    item.paragraphId = cleanId(body.paragraphId, "缺少对应的自然分段");
+    item.paragraphId = canonicalParagraphId(material, cleanId(body.paragraphId, "缺少对应的自然分段"));
     if (!material.paragraphs.some((paragraph) => paragraph.id === item.paragraphId)) throw httpError(400, "没有找到对应的自然分段");
     item.sourceText = cleanText(body.sourceText, 10000, "自然分段原文不能为空");
     return item;
   }
-  item.sentenceId = cleanId(body.sentenceId, "缺少对应的自然句");
+  item.sentenceId = canonicalSentenceId(material, cleanId(body.sentenceId, "缺少对应的自然句"));
   if (!material.sentences.some((sentence) => sentence.id === item.sentenceId)) throw httpError(400, "没有找到对应的自然句");
   item.sourceText = cleanText(body.sourceText, 500, "复习内容不能为空");
   if (kind === "phrase") {
@@ -808,7 +881,7 @@ function findAnalyzedPhrase(material, sentenceId, phraseText) {
   const sentence = material.sentences.find((item) => item.id === sentenceId);
   if (!sentence) return null;
   const exactText = String(phraseText || "").trim();
-  return (sentence.analysis?.phrases || []).find((item) => (
+  return ((sentence.analysis || sentence.previousAnalysis)?.phrases || []).find((item) => (
     String(item.text || "").trim() === exactText
   )) || null;
 }
