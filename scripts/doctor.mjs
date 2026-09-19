@@ -56,6 +56,15 @@ for (const [id, label, command, fix] of [
 }
 
 const codexPath = findExecutable("codex");
+const youtubePath = findExecutable("yt-dlp");
+checks.push({
+  id: "youtube",
+  label: "YouTube / Apple Podcasts 导入 yt-dlp（可选）",
+  required: false,
+  ok: Boolean(youtubePath),
+  detail: youtubePath || "未安装；飞书和本地文件导入不受影响",
+  fix: "brew install yt-dlp",
+});
 checks.push({
   id: "codex",
   label: "Codex CLI（AI 讲解服务，可选）",
