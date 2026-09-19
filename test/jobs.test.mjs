@@ -62,6 +62,14 @@ test("startup recovery stops stale jobs and resumes ready material analysis", as
     };
     await storage.saveJob(queuedSuccessor);
 
+    const imported = await createAnalysisMaterial(storage, {
+      title: "YouTube imported with partial analysis", analysisStatus: "processing", analysis: null,
+    });
+    imported.sentences.push({ id: "sentence-done", text: "Already completed.", start: 2, end: 4,
+      analysis: { translationZh: "已经完成的讲解", spokenFormNotes: [] } });
+    await storage.saveMaterial(imported);
+    await storage.saveJob({ ...staleJob, id: storage.createId("job"), kind: "youtube-import", materialId: imported.id });
+
     const resumedSelections = [];
     const recovery = await jobs.recoverInterruptedJobs(async (materialId, aiSettings) => {
       resumedSelections.push({ materialId, aiSettings });
@@ -69,12 +77,14 @@ test("startup recovery stops stale jobs and resumes ready material analysis", as
     });
 
     assert.equal((await storage.readJob(staleJob.id)).status, "failed");
-    assert.deepEqual(resumedSelections.map((item) => item.materialId), [material.id]);
+    assert.deepEqual(new Set(resumedSelections.map((item) => item.materialId)), new Set([material.id, imported.id]));
+    assert.deepEqual(resumedSelections.find(item => item.materialId === imported.id)?.aiSettings, staleJob.aiProvider);
+    assert.deepEqual((await storage.readMaterial(imported.id)).sentences[1].analysis, imported.sentences[1].analysis);
     assert.deepEqual(resumedSelections.find((item) => item.materialId === material.id)?.aiSettings, {
       provider: "cursor",
       model: "frozen-queued-model",
     });
-    assert.equal(recovery.resumed.length, 1);
+    assert.equal(recovery.resumed.length, 2);
     assert(recovery.resumed.every((job) => job.id === "replacement-job"));
     const recoveredMaterial = await storage.readMaterial(material.id);
     assert.equal(recoveredMaterial.status, "ready");

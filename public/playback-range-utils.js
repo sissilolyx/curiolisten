@@ -1,13 +1,12 @@
 const DEFAULT_LEAD_IN_SECONDS = 3;
 const MAX_CONTIGUOUS_GAP_SECONDS = 0.35;
 const MIN_CONTIGUOUS_OVERLAP_SECONDS = -0.1;
+const WHISPER_SOURCE_TYPES = new Set(["local", "youtube", "apple-podcasts"]);
 
 export function resolveSentencePlaybackRange({ sentence, sentences, mediaDuration = Infinity } = {}) {
   const displayStart = Math.max(0, Number(sentence?.start) || 0);
   const displayEnd = Math.max(displayStart, Number(sentence?.end) || displayStart);
-  const hasAlignedPlayback = Number.isFinite(Number(sentence?.playbackStart))
-    && Number.isFinite(Number(sentence?.playbackEnd))
-    && Number(sentence.playbackEnd) > Number(sentence.playbackStart);
+  const hasAlignedPlayback = hasPlaybackBounds(sentence);
   const safeMediaEnd = Number.isFinite(Number(mediaDuration))
     ? Math.max(0, Number(mediaDuration))
     : Infinity;
@@ -36,13 +35,18 @@ export function resolveSentencePlaybackRange({ sentence, sentences, mediaDuratio
 // timestamp until Whisper finds the actual words. That estimate is useful for
 // ordering the transcript, but it is not safe enough for a sentence-level
 // play button: a missing/duplicate transcript sentence can otherwise play an
-// unrelated fragment from the same block.
-export function hasReliableSentencePlayback(sentence, mediaDuration = Infinity) {
+// unrelated fragment from the same block. Local/YouTube/podcast imports already
+// get their source sentence boundaries directly from Whisper; unlike Lark's
+// speaker blocks, these do not need a second set of aligned playback fields.
+export function hasReliableSentencePlayback(sentence, mediaDuration = Infinity, { sourceType } = {}) {
   const hasAlignedPlayback = hasPlaybackBounds(sentence);
-  if (!hasAlignedPlayback) return false;
+  const hasWhisperSourceTiming = WHISPER_SOURCE_TYPES.has(sourceType)
+    && sentence?.timingQuality === "source"
+    && hasPositiveRange(sentence.start, sentence.end);
+  if (!hasAlignedPlayback && !hasWhisperSourceTiming) return false;
 
-  const requestedStart = Number(sentence.playbackStart);
-  const requestedEnd = Number(sentence.playbackEnd);
+  const requestedStart = Number(hasAlignedPlayback ? sentence.playbackStart : sentence.start);
+  const requestedEnd = Number(hasAlignedPlayback ? sentence.playbackEnd : sentence.end);
   const numericDuration = Number(mediaDuration);
   const safeMediaEnd = Number.isFinite(numericDuration) && numericDuration > 0
     ? numericDuration
@@ -176,7 +180,8 @@ function hasPlaybackBounds(sentence) {
 }
 
 function hasPositiveRange(start, end) {
-  return Number.isFinite(Number(start))
+  return start != null && end != null && start !== "" && end !== ""
+    && Number.isFinite(Number(start))
     && Number.isFinite(Number(end))
     && Number(end) > Number(start);
 }

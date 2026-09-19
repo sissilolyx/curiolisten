@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
-    <title>原声精听</title>
+    <title>原声精听｜AI 英语精听 · YouTube 与播客听力训练</title>
+    <meta name="description" content="把 YouTube、播客和英文录音变成 AI 英语精听练习：原声播放、听写核对、逐句讲解与表达复习。在 Mac 上本地运行。">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
   </head>
@@ -29,7 +30,7 @@
             <span class="brand-mark" aria-hidden="true">声</span>
             <span class="brand-copy">
               <strong>原声精听</strong>
-              <small>Real meeting practice</small>
+              <small>AI English listening</small>
             </span>
           </button>
         </div>
@@ -74,6 +75,13 @@
           <span>正在检查本机能力</span>
         </div>
 
+        <button class="trash-rail-button" id="studyTimeButton" type="button" aria-label="学习统计" title="学习统计" aria-haspopup="dialog" aria-controls="studyTimeDialog">
+          <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M4 20V12m8 8V4m8 16V8" /></svg>
+          <span>学习统计</span><span class="study-time-today" id="studyTimeToday">今日 0 秒</span>
+        </button>
+        <button class="trash-rail-button" id="correctionMemoryButton" type="button" aria-label="识别记忆" title="识别记忆" aria-haspopup="dialog" aria-controls="correctionMemoryDialog">
+          <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6M12 7v5l3 2" /></svg><span>识别记忆</span>
+        </button>
         <button class="trash-rail-button" id="trashButton" type="button" aria-haspopup="dialog" aria-controls="trashDialog">
           <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
             <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
@@ -86,18 +94,40 @@
       <main class="main-stage">
         <section id="homeView" class="home-view">
           <header class="home-intro">
-            <p class="eyebrow">YOUR REAL ENGLISH, SLOWED DOWN</p>
-            <h1>把开过的会，<br>练成听得懂的英语。</h1>
-            <p class="home-copy">使用原始会议声音，逐句听写、核对和理解。录屏留在本机，所选 AI 只负责把转写变成学习内容。</p>
+            <p class="eyebrow">YOUR FAVORITE CONTENT, YOUR ENGLISH PRACTICE</p>
+            <h1>把想听懂的原声，<br>变成每天能练的英语。</h1>
+            <p class="home-copy">导入 YouTube、播客或英文录音，先听写核对，再用 AI 逐句理解。原始音视频留在本机，讲解所需文本交给你选定的 AI 服务。</p>
           </header>
 
           <div class="import-workbench" id="importWorkbench">
             <div class="import-tabs" role="tablist" aria-label="导入方式">
-              <button class="import-tab is-active" id="larkTab" role="tab" aria-selected="true" aria-controls="larkImport" type="button">飞书妙记</button>
-              <button class="import-tab" id="fileTab" role="tab" aria-selected="false" aria-controls="fileImport" type="button">本地文件</button>
+              <button class="import-tab is-active" id="youtubeTab" role="tab" aria-selected="true" aria-controls="youtubeImport" type="button">YouTube 链接</button>
+              <button class="import-tab" id="podcastTab" role="tab" aria-selected="false" aria-controls="podcastImport" tabindex="-1" type="button">Apple Podcasts</button>
+              <button class="import-tab" id="larkTab" role="tab" aria-selected="false" aria-controls="larkImport" tabindex="-1" type="button">飞书妙记</button>
+              <button class="import-tab" id="fileTab" role="tab" aria-selected="false" aria-controls="fileImport" tabindex="-1" type="button">本地文件</button>
             </div>
 
-            <section class="import-panel" id="larkImport" role="tabpanel" aria-labelledby="larkTab">
+            <section class="import-panel" id="youtubeImport" role="tabpanel" aria-labelledby="youtubeTab">
+              <label for="youtubeUrl">粘贴 YouTube 视频链接</label>
+              <div class="url-entry">
+                <input id="youtubeUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://www.youtube.com/watch?v=..." aria-describedby="youtubeImportNote">
+                <button class="primary-button" id="importYouTubeButton" type="button">开始解析</button>
+              </div>
+              <p class="field-note" id="youtubeImportNote">下载原声视频到本机，再转写成精听材料。支持普通视频和 Shorts，单个视频最长 4 小时。</p>
+              <p class="field-note is-hidden" id="youtubeDependencyNote" role="status"></p>
+            </section>
+
+            <section class="import-panel is-hidden" id="podcastImport" role="tabpanel" aria-labelledby="podcastTab">
+              <label for="podcastUrl">粘贴 Apple Podcasts 单集链接</label>
+              <div class="url-entry">
+                <input id="podcastUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://podcasts.apple.com/...&i=..." aria-describedby="podcastImportNote">
+                <button class="primary-button" id="importPodcastButton" type="button">开始解析</button>
+              </div>
+              <p class="field-note" id="podcastImportNote">从“分享单集”复制链接，下载公开原声并转写成精听材料。单集最长 4 小时。</p>
+              <p class="field-note is-hidden" id="podcastDependencyNote" role="status"></p>
+            </section>
+
+            <section class="import-panel is-hidden" id="larkImport" role="tabpanel" aria-labelledby="larkTab">
               <label for="larkUrl">粘贴飞书录屏或妙记链接</label>
               <div class="url-entry">
                 <input id="larkUrl" type="url" autocomplete="off" placeholder="https://...larkoffice.com/minutes/...">
@@ -116,13 +146,18 @@
               </label>
             </section>
 
-            <div class="job-panel is-hidden" id="jobPanel" aria-live="polite">
+            <div class="job-panel is-hidden" id="uploadPanel" aria-live="polite">
               <div class="job-meta">
                 <span id="jobStage">准备处理</span>
                 <span id="jobPercent">0%</span>
               </div>
               <div class="progress-track" aria-hidden="true"><span id="jobProgress"></span></div>
-              <p id="jobDetail">可以离开此页面，处理完成后材料会保存在本机。</p>
+              <p id="jobDetail">正在保存文件，请稍候。</p>
+            </div>
+            <div class="job-panel is-hidden" id="jobPanel" aria-labelledby="importJobsHeading">
+              <h2 id="importJobsHeading" class="import-jobs-heading" aria-live="polite">后台处理</h2>
+              <p class="import-jobs-hint">材料已添加，可以继续添加新的链接或文件。</p>
+              <ul id="importJobList" class="import-job-list" aria-label="各材料处理进度"></ul>
             </div>
           </div>
 
@@ -138,7 +173,10 @@
             <div>
               <button class="back-link" id="backButton" type="button">← 材料库</button>
               <h2 id="materialTitle">会议标题</h2>
-              <p id="materialMeta">0 分钟 · 0 个自然分段</p>
+              <div class="training-meta-row">
+                <p id="materialMeta">0 分钟 · 0 个自然分段</p>
+                <button class="material-source-button" id="materialSourceButton" type="button" aria-haspopup="dialog">材料来源 ↗</button>
+              </div>
             </div>
             <div class="header-actions">
               <div class="media-view-switch is-hidden" id="mediaViewSwitch" role="group" aria-label="媒体显示方式">
@@ -209,15 +247,22 @@
                   <span class="step-number">01</span>
                   <div>
                     <p class="step-label">先听原声</p>
-                    <h3>不看文字，听清这个片段。</h3>
+                    <h3 id="listenPromptTitle">不看文字，听清这个片段。</h3>
                   </div>
                 </div>
 
-                <label class="dictation-field" for="dictationInput">
-                  <span>写下你听到的内容（可跳过）</span>
+                <div class="dictation-field">
+                  <div class="dictation-field-heading">
+                    <label for="dictationInput">写下你听到的内容（可跳过）</label>
+                    <button class="text-button" id="dictationToggleButton" type="button" aria-expanded="true" aria-controls="dictationInput" title="自动记住展开状态，对所有片段生效">收起听写</button>
+                  </div>
                   <textarea id="dictationInput" rows="4" spellcheck="false" placeholder="Type what you hear..."></textarea>
-                </label>
+                </div>
 
+                <label class="auto-reveal-control" title="自动记住此偏好，对所有材料和片段生效">
+                  <input id="autoRevealInput" type="checkbox" />
+                  <span>默认展开原文与逐句讲解</span>
+                </label>
                 <button class="reveal-button" id="revealButton" type="button">查看原文与讲解</button>
 
                 <div class="answer-area is-hidden" id="answerArea">
@@ -241,6 +286,7 @@
                   </div>
                   <div class="edit-transcript is-hidden" id="editTranscriptPanel">
                     <textarea id="transcriptEditInput" rows="4"></textarea>
+                    <label class="transcript-learning-option"><input id="transcriptLearnCheckbox" type="checkbox" checked>记住这次纠错，用于以后的识别</label>
                     <div>
                       <button class="quiet-button" id="cancelEditButton" type="button">取消</button>
                       <button class="primary-button compact" id="saveTranscriptButton" type="button">保存修正</button>
@@ -324,7 +370,7 @@
           </div>
         </aside>
 
-        <button class="ask-rail-toggle is-hidden" id="askRailToggle" type="button" aria-expanded="false" aria-controls="askPanel" aria-label="展开深入问问栏">
+        <button class="ask-rail-toggle is-hidden" id="askRailToggle" type="button" aria-expanded="false" aria-controls="askPanel" aria-label="展开深入问问栏" title="深入问问当前片段">
           <span class="ask-rail-toggle-label">深入问问</span>
           <span class="ask-rail-toggle-count" id="askRailToggleCount">0</span>
           <span class="ask-rail-toggle-pending is-hidden" id="askRailTogglePending">生成中</span>
@@ -419,6 +465,48 @@
           </div>
         </dialog>
 
+        <dialog class="trash-dialog study-time-dialog" id="studyTimeDialog" aria-labelledby="studyTimeTitle">
+          <div class="trash-dialog-content">
+            <header class="trash-dialog-header">
+              <div><p>YOUR LEARNING TIME</p><h2 id="studyTimeTitle">学习统计</h2></div>
+              <button class="icon-button" id="closeStudyTimeButton" type="button" aria-label="关闭学习统计">×</button>
+            </header>
+            <p class="study-time-status" id="studyTimeStatus">计时已暂停 · 播放或交互后继续</p>
+            <div class="study-time-totals">
+              <div><span>今日合计</span><strong id="studyTimeTotal">0 秒</strong></div>
+              <div><span class="study-intensive-label">精听时长</span><strong id="studyTimeIntensive">0 秒</strong></div>
+              <div><span class="study-review-label">复习时长</span><strong id="studyTimeReview">0 秒</strong></div>
+            </div>
+            <p class="study-time-summary">近 7 天 <strong id="studyTimeWeek">0 秒</strong> · 累计 <strong id="studyTimeAll">0 秒</strong> · 已学习 <strong id="studyTimeDays">0 天</strong></p>
+            <div class="study-time-range"><label for="studyTimeRange">每日记录</label><select id="studyTimeRange"><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="90">最近 90 天</option></select></div>
+            <div class="study-time-table-wrap"><table class="study-time-table"><thead><tr><th scope="col">日期</th><th scope="col">精听</th><th scope="col">复习</th><th scope="col">合计</th></tr></thead><tbody id="studyTimeDaily"></tbody></table></div>
+            <p class="trash-dialog-note">播放原声、点击、输入或滚动时保持活跃。连续 1 分钟没有听音和交互后暂停，下一次操作再继续。按当前模式计时，多标签页不重复累加，每 15 秒保存到本机。</p>
+            <p class="study-time-footnote" id="studyTimeZone"></p>
+          </div>
+        </dialog>
+        <dialog class="trash-dialog material-source-dialog" id="materialSourceDialog" aria-labelledby="materialSourceTitle">
+          <div class="trash-dialog-content">
+            <header class="trash-dialog-header">
+              <h2 id="materialSourceTitle">材料来源</h2>
+              <button class="icon-button" id="closeMaterialSourceButton" type="button" aria-label="关闭材料来源">×</button>
+            </header>
+            <p class="trash-dialog-note" id="materialSourceName"></p>
+            <p class="trash-dialog-note" id="materialSourceStatus" role="status"></p>
+            <div id="materialSourceDetails"></div>
+          </div>
+        </dialog>
+
+        <dialog class="trash-dialog" id="correctionMemoryDialog" aria-labelledby="correctionMemoryTitle">
+          <div class="trash-dialog-content">
+            <header class="trash-dialog-header">
+              <div><p>LOCAL CORRECTIONS</p><h2 id="correctionMemoryTitle">识别记忆</h2></div>
+              <button class="icon-button" id="closeCorrectionMemoryButton" type="button" aria-label="关闭识别记忆">×</button>
+            </header>
+            <p class="trash-dialog-note">把你确认过的名字、术语和易错表达留在本机，供后续 Whisper 识别参考。不会自动替换其他句子，也不会重跑正在处理的材料。</p>
+            <p class="trash-dialog-note" id="correctionMemoryStatus" role="status"></p>
+            <div id="correctionMemoryList"></div>
+          </div>
+        </dialog>
         <dialog class="trash-dialog" id="trashDialog" aria-labelledby="trashDialogTitle">
           <div class="trash-dialog-content">
             <header class="trash-dialog-header">

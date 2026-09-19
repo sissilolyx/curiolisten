@@ -4,11 +4,32 @@ import test from "node:test";
 import {
   classifyAskAnchor,
   countAskThreadCards,
+  createSentenceAskContext,
   dedupeAskHistoryItems,
   isAskRequestTokenCurrent,
   mergeAskThreadCards,
   resolveAskPanelTop,
 } from "../public/ask-thread-utils.js";
+
+test("sentence questions keep exact context without depending on generated phrases", () => {
+  const sentence = { id: "sentence-no-phrases", text: "This sentence has no extracted phrases.", analysis: null };
+  const context = createSentenceAskContext(sentence);
+  assert.equal(context.sentenceId, sentence.id);
+  assert.equal(context.sourceText, sentence.text);
+  assert.equal(context.anchorSurface, "original");
+  assert.equal(context.anchorSurfaceText.slice(context.anchorStart, context.anchorEnd), context.sourceText);
+  assert.equal(createSentenceAskContext({ id: "blank", text: "  " }), null);
+  assert.equal(createSentenceAskContext(null), null);
+});
+
+test("long sentence questions respect selection limits and preserve exact anchor offsets", () => {
+  const context = createSentenceAskContext({ id: "sentence-long", text: `  ${"A longer synthetic sentence. ".repeat(30)} ` });
+  assert.equal(context.sourceText.length, 300);
+  assert.equal(context.anchorStart, 2);
+  assert.equal(context.anchorSurfaceText.slice(context.anchorStart, context.anchorEnd), context.anchorExact);
+  assert.equal(context.sourceText, context.anchorExact);
+  assert.equal(context.suffix.length, 64);
+});
 
 test("ask thread distinguishes visible, above, below, and missing anchors", () => {
   assert.equal(classifyAskAnchor({ top: 120, bottom: 150 }, 900), "visible");
