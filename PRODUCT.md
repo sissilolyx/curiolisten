@@ -1,4 +1,4 @@
-# 原声精听｜AI 英语精听
+# Meeting Listening Lab · 原声精听
 
 register: product
 
@@ -8,7 +8,7 @@ Turn YouTube videos, podcast episodes, and real English recordings into AI-assis
 
 ## Primary user
 
-The learner imports a public YouTube video, an Apple Podcasts episode, a Feishu/Lark Minutes link, or a local audio/video file. They want to practice with content they care about, check what they heard, understand expressions in context, and return to difficult moments later.
+The current release serves Chinese-speaking English learners on macOS; its interface and AI explanations are primarily in Chinese. The learner imports a public YouTube video, an Apple Podcasts episode, a Feishu/Lark Minutes link, or a local audio/video file. They want to practice with content they care about, check what they heard, understand expressions in context, and return to difficult moments later.
 
 ## Core loop
 
