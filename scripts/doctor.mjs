@@ -255,7 +255,7 @@ function safeRun(command, args, options = {}) {
 }
 
 function printReport(items, ready, aiReady) {
-  console.log("\n原声精听 · 本机检查");
+  console.log("\nCurioListen · 原声精听 · 本机检查");
   console.log("====================\n");
   for (const item of items) {
     const icon = item.ok ? "✓" : item.required ? "✗" : "○";
