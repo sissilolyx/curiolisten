@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { blocksToSentences, parseWhisperJson } from "../lib/transcript.mjs";
 
 import {
   hasReliableSentencePlayback,
@@ -9,6 +10,50 @@ import {
   resolveParagraphPlaybackRange,
   resolveSentencePlaybackRange,
 } from "../public/playback-range-utils.js";
+
+test("Whisper-derived local, YouTube, and podcast sentences play from existing source timestamps", () => {
+  const payload = { transcription: [{
+    text: "The lantern glows. The bell rings.",
+    tokens: [
+      { text: " The lantern glows.", offsets: { from: 1320, to: 4080 } },
+      { text: " The bell rings.", offsets: { from: 4180, to: 7760 } },
+    ],
+  }] };
+  const sentences = blocksToSentences(parseWhisperJson(payload, 10));
+  assert.equal(sentences.length, 2);
+  for (const sourceType of ["local", "youtube", "apple-podcasts"]) {
+    for (const item of sentences) {
+      assert.equal(item.playbackStart, undefined, "existing imports need no data migration");
+      assert.equal(hasReliableSentencePlayback(item, 10, { sourceType }), true);
+      const range = resolveSentencePlaybackRange({ sentence: item, sentences, mediaDuration: 10 });
+      assert.equal(range.start, item.start);
+      assert.equal(range.end, item.end);
+    }
+    assert.equal(hasReliableSentencePlayback({ ...sentences[0], timingQuality: "estimated" }, 10, { sourceType }), false);
+  }
+  assert.equal(hasReliableSentencePlayback(sentences[0], 10, { sourceType: "lark" }), false);
+  assert.equal(hasReliableSentencePlayback(sentences[0], 10), false);
+});
+
+test("native Whisper playback rejects unusable ranges and keeps calibrated bounds authoritative", () => {
+  const source = { start: 10, end: 12, timingQuality: "source" };
+  const options = { sourceType: "apple-podcasts" };
+  assert.equal(hasReliableSentencePlayback(source, 11, options), true);
+  assert.equal(resolveSentencePlaybackRange({ sentence: source, mediaDuration: 11 }).end, 11);
+  assert.equal(hasReliableSentencePlayback(source, 10, options), false);
+  assert.equal(hasReliableSentencePlayback(source, NaN, options), true, "metadata may still be loading");
+  for (const invalid of [
+    { start: null }, { end: null }, { start: "" }, { end: "" },
+    { start: NaN }, { end: Infinity }, { end: 10 }, { end: 9 }, { end: 10.01 },
+  ]) assert.equal(hasReliableSentencePlayback({ ...source, ...invalid }, 20, options), false);
+  const aligned = { ...source, playbackStart: 10.4, playbackEnd: 11.7 };
+  assert.equal(hasReliableSentencePlayback(aligned, 20, options), true);
+  const range = resolveSentencePlaybackRange({ sentence: aligned, mediaDuration: 20 });
+  assert.equal(range.start, 10.4);
+  assert.equal(range.end, 11.7);
+  assert.equal(hasReliableSentencePlayback({ ...aligned, playbackStart: 21, playbackEnd: 23 }, 20, options), false);
+  assert.equal(hasReliableSentencePlayback({ start: 1, end: 2, playbackStart: null, playbackEnd: 3 }), false);
+});
 
 test("an estimated sentence needs calibrated bounds before sentence-level playback", () => {
   const estimated = sentence("synthetic-estimated", 10, 15, "synthetic-block");

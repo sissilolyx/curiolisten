@@ -44,7 +44,7 @@ test("Lark transcript becomes natural sentences with continuous timestamps", () 
   assert.equal(sentences.at(-1).end, 14);
 });
 
-test("an introductory dependent clause stays with the main clause as one natural sentence", () => {
+test("explicit sentence-ending punctuation is retained without rewriting clauses", () => {
   const sentences = blocksToSentences([{
     id: "synthetic-block-intro",
     speaker: "Speaker A",
@@ -53,14 +53,11 @@ test("an introductory dependent clause stays with the main clause as one natural
     text: "Once the brass turtle reaches the velvet bridge. The miniature parade can begin.",
   }]);
 
-  assert.equal(sentences.length, 1);
-  assert.equal(
-    sentences[0].text,
-    "Once the brass turtle reaches the velvet bridge, the miniature parade can begin.",
-  );
+  assert.equal(sentences.length, 2);
+  assert.equal(sentences.map(sentence => sentence.text).join(" "), "Once the brass turtle reaches the velvet bridge. The miniature parade can begin.");
   assert.equal(sentences[0].start, 12.25);
-  assert.equal(sentences[0].end, 18.75);
-  assert.equal(sentences[0].wordCount, 13);
+  assert.equal(sentences.at(-1).end, 18.75);
+  assert.equal(sentences.reduce((sum, sentence) => sum + sentence.wordCount, 0), 13);
 });
 
 test("dependent-clause merging stays conservative around self-corrections and complete clauses", () => {

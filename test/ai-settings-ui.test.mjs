@@ -88,7 +88,7 @@ test("synthetic browser: first-run AI settings remain blocking, persist, and reo
   settings = { configured: true, provider: "cursor", model: "auto" };
   await page.reload();
   assert.equal(await dialog.isVisible(), false, "an already configured but temporarily unavailable account never blocks local listening");
-  assert.equal(await page.getByRole("heading", { name: /把开过的会/ }).isVisible(), true);
+  assert.equal(await page.getByRole("heading", { name: /把想听懂的原声/ }).isVisible(), true);
   assert.equal(await page.getByText("账户状态有变化，点击检查").isVisible(), true);
 });
 
